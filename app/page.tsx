@@ -1,160 +1,233 @@
 import Link from "next/link";
-import { Activity, AlertTriangle, BrainCircuit, MessageSquareMore, ShieldCheck, TrendingUp } from "lucide-react";
-import { PricingSection } from "@/components/PricingSection";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { BarChart3, Bot, ShieldAlert, Sparkles, TrendingDown } from "lucide-react";
+import CheckoutButton from "@/components/CheckoutButton";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from "@/components/ui/card";
+import { listServers } from "@/lib/database/models";
 
-interface HomePageProps {
-  searchParams: Promise<{ locked?: string; server?: string }>;
-}
+const faq = [
+  {
+    question: "How is churn risk calculated?",
+    answer:
+      "Each member gets a 0-100 risk score from inactivity streaks, month-over-month message drop, and low recent participation. High-risk rows are people likely to go silent soon unless re-engaged."
+  },
+  {
+    question: "Will this work on active servers with thousands of members?",
+    answer:
+      "Yes. The bot streams lightweight message/member events to the dashboard webhook, and analytics run on aggregated records rather than expensive per-request Discord queries."
+  },
+  {
+    question: "Do I need to install another analytics bot?",
+    answer:
+      "No extra dashboard extension is required. Install this bot once, keep it online, and your server feed powers contributor ranking, trend charts, churn risk, and topic insights."
+  },
+  {
+    question: "How does payment unlock access?",
+    answer:
+      "After checkout, Lemon Squeezy webhook marks your order as paid. Confirm your order ID on the unlock page and a secure cookie unlocks your dashboard for that server."
+  }
+];
 
-export default async function HomePage({ searchParams }: HomePageProps) {
-  const params = await searchParams;
-  const showPaywallNotice = params.locked === "1";
+export default function HomePage() {
+  const servers = listServers();
 
   return (
-    <main className="min-h-screen pb-16">
-      <section className="grid-bg border-b border-slate-800/80">
-        <div className="mx-auto max-w-6xl px-6 py-20 lg:py-28">
-          <p className="fade-slide inline-flex rounded-full border border-blue-400/40 bg-blue-400/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-blue-200">
-            Discord Community Analytics
-          </p>
-          <h1 className="fade-slide mt-6 max-w-4xl text-4xl font-bold leading-tight tracking-tight text-slate-100 sm:text-5xl lg:text-6xl">
-            Know exactly who drives engagement and predict churn before your Discord goes quiet.
-          </h1>
-          <p className="fade-slide-delay mt-6 max-w-2xl text-lg leading-relaxed text-slate-300">
-            Add one bot to your server and get a health-focused dashboard: top contributors, message frequency trends,
-            at-risk members, and topic-level visibility from real conversation data.
-          </p>
-
-          <div className="mt-8 flex flex-wrap gap-3">
-            <a href="#pricing">
-              <Button size="lg">Start Tracking for $19/mo</Button>
-            </a>
-            <Link href="/dashboard/demo-server">
-              <Button variant="outline" size="lg">
-                Open Dashboard Route
-              </Button>
-            </Link>
-          </div>
-
-          {showPaywallNotice ? (
-            <div className="mt-6 max-w-xl rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-sm text-amber-200">
-              This dashboard is paywalled. Complete checkout for server <strong>{params.server ?? "unknown"}</strong> and unlock
-              access from the purchase confirmation page.
+    <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+      <header className="rounded-2xl border border-slate-800 bg-[#111827]/90 p-6 sm:p-10">
+        <div className="grid gap-8 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="space-y-6">
+            <p className="inline-flex items-center gap-2 rounded-full border border-slate-700 px-3 py-1 text-xs uppercase tracking-wide text-slate-300">
+              <Sparkles className="h-3.5 w-3.5 text-cyan-300" />
+              Discord Community Analytics
+            </p>
+            <h1
+              className="text-3xl font-semibold leading-tight text-slate-100 sm:text-5xl"
+              style={{ fontFamily: "var(--font-heading)" }}
+            >
+              Know Which Members Drive Engagement and Predict Churn Before It Hits
+            </h1>
+            <p className="max-w-xl text-sm leading-relaxed text-slate-300 sm:text-base">
+              Community managers with 500-5000 members can finally track health, not just raw
+              message counts. Measure contribution quality, trend engagement over time, and flag
+              at-risk members early enough to intervene.
+            </p>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <CheckoutButton serverId="demo-server" className="w-full sm:w-auto">
+                Start at $19 / server / month
+              </CheckoutButton>
+              <Link href="/dashboard/demo-server" className="w-full sm:w-auto">
+                <Button variant="outline" className="w-full">
+                  Open Demo Dashboard
+                </Button>
+              </Link>
             </div>
-          ) : null}
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-6 py-16">
-        <div className="grid gap-5 md:grid-cols-3">
-          <Card className="bg-[#111926]">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <AlertTriangle className="h-4 w-4 text-amber-300" />
-                Problem: admins fly blind
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-slate-300">
-              Raw message counts miss what matters: who sustains momentum, where participation is dropping, and who is about
-              to disengage.
-            </CardContent>
-          </Card>
-          <Card className="bg-[#111926]">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <BrainCircuit className="h-4 w-4 text-blue-300" />
-                Solution: health + prediction
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-slate-300">
-              We combine engagement velocity, recency, and behavior change patterns to flag churn risk early while surfacing
-              the members creating durable value.
-            </CardContent>
-          </Card>
-          <Card className="bg-[#111926]">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-base">
-                <ShieldCheck className="h-4 w-4 text-emerald-300" />
-                Built for 500-5000 members
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="text-sm text-slate-300">
-              Purpose-built for community managers running growing Discords where retention outcomes matter more than vanity
-              counts.
-            </CardContent>
-          </Card>
-        </div>
-      </section>
-
-      <section className="mx-auto max-w-6xl px-6 pb-16">
-        <div className="grid gap-6 md:grid-cols-2">
-          <Card className="bg-[#111926]">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-xl">
-                <TrendingUp className="h-5 w-5 text-blue-300" />
-                What you get in the dashboard
-              </CardTitle>
-              <CardDescription>Actionable analytics, not vanity charts.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm text-slate-300">
-              <p className="flex items-start gap-2">
-                <Activity className="mt-0.5 h-4 w-4 text-blue-300" />
-                Daily message velocity and active member trends with momentum direction.
-              </p>
-              <p className="flex items-start gap-2">
-                <MessageSquareMore className="mt-0.5 h-4 w-4 text-emerald-300" />
-                Top contributor leaderboard weighted for consistency, not one-off spikes.
-              </p>
-              <p className="flex items-start gap-2">
-                <AlertTriangle className="mt-0.5 h-4 w-4 text-amber-300" />
-                At-risk churn watchlist with inactivity and week-over-week decline context.
-              </p>
-              <p className="flex items-start gap-2">
-                <BrainCircuit className="mt-0.5 h-4 w-4 text-indigo-300" />
-                Word cloud of hot topics from live conversation streams.
-              </p>
-            </CardContent>
-          </Card>
-
-          <div id="pricing">
-            <PricingSection />
+            <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
+              <a href="/api/auth/discord" className="underline underline-offset-4">
+                Install bot on Discord
+              </a>
+              <span>•</span>
+              <Link href="/paywall/confirm" className="underline underline-offset-4">
+                Unlock after purchase
+              </Link>
+              <span>•</span>
+              <a href="/api/health" className="underline underline-offset-4">
+                Health endpoint
+              </a>
+            </div>
           </div>
+          <Card className="bg-slate-950/70">
+            <CardHeader>
+              <CardTitle>What Discord admins miss today</CardTitle>
+              <CardDescription>
+                Existing tools report totals. They rarely explain momentum or retention risk.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm text-slate-300">
+              <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+                <p className="font-medium text-slate-100">Blind spot #1: health vs. volume</p>
+                <p className="mt-1 text-slate-400">
+                  High daily message counts can hide a shrinking core contributor group.
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+                <p className="font-medium text-slate-100">Blind spot #2: churn signals</p>
+                <p className="mt-1 text-slate-400">
+                  Without risk scoring, members disappear before mods notice behavior changes.
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+                <p className="font-medium text-slate-100">Blind spot #3: topic pulse</p>
+                <p className="mt-1 text-slate-400">
+                  Word clouds expose where conversation energy is rising or fading by week.
+                </p>
+              </div>
+            </CardContent>
+          </Card>
         </div>
-      </section>
+      </header>
 
-      <section className="mx-auto max-w-6xl px-6 pb-16">
-        <Card className="bg-[#111926]">
+      <section className="mt-10 grid gap-4 md:grid-cols-3">
+        <Card>
           <CardHeader>
-            <CardTitle className="text-2xl">FAQ</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="h-5 w-5 text-sky-300" />
+              Engagement Trends
+            </CardTitle>
           </CardHeader>
-          <CardContent className="grid gap-6 text-sm text-slate-300 md:grid-cols-2">
+          <CardContent className="text-sm text-slate-300">
+            Daily message frequency and active member movement over the last 30 days.
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingDown className="h-5 w-5 text-amber-300" />
+              Churn Prediction
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-slate-300">
+            Risk table prioritizes who needs outreach by inactivity and participation decline.
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Bot className="h-5 w-5 text-cyan-300" />
+              Bot-Powered Collection
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-sm text-slate-300">
+            Drop in the bot, stream events through secure webhook ingestion, and monitor instantly.
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="mt-10 grid gap-4 lg:grid-cols-[1fr_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Pricing</CardTitle>
+            <CardDescription>
+              One plan designed for serious Discord communities.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
             <div>
-              <h3 className="font-semibold text-slate-100">How is churn risk predicted?</h3>
-              <p className="mt-2">
-                We score each member using inactivity window, recent activity decline, and message behavior shifts between the
-                last two weeks.
+              <p className="text-3xl font-semibold text-slate-100">$19</p>
+              <p className="text-sm text-slate-400">per server / month</p>
+            </div>
+            <ul className="space-y-2 text-sm text-slate-300">
+              <li>Top contributor leaderboard with engagement score</li>
+              <li>30-day message trend chart with activity baseline</li>
+              <li>Churn risk model and intervention list</li>
+              <li>Hot-topic word cloud for content strategy</li>
+              <li>Webhook ingest endpoint + bot starter included</li>
+            </ul>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <CheckoutButton serverId="demo-server" className="w-full sm:w-auto" />
+              <Link href="/paywall/confirm" className="w-full sm:w-auto">
+                <Button variant="outline" className="w-full">
+                  Already purchased?
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Proof in your own data</CardTitle>
+            <CardDescription>
+              Start with the demo workspace, then connect your production server.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
+              <p className="text-sm text-slate-300">
+                Your instance currently has <span className="font-semibold text-sky-300">{servers.length}</span>{" "}
+                tracked server{servers.length === 1 ? "" : "s"}. Use `demo-server` to explore the full dashboard immediately.
               </p>
             </div>
-            <div>
-              <h3 className="font-semibold text-slate-100">Will this replace StatBot?</h3>
-              <p className="mt-2">
-                It complements count-focused bots by adding health and retention context so moderators can intervene before
-                valuable members drift away.
+            <div className="rounded-lg border border-slate-800 bg-slate-900/50 p-4 text-sm text-slate-300">
+              <p className="font-medium text-slate-100">Production checklist</p>
+              <p className="mt-1">
+                Install the bot, set webhook secret, configure Lemon Squeezy env vars, then route
+                your server admins through checkout + unlock flow.
               </p>
             </div>
-            <div>
-              <h3 className="font-semibold text-slate-100">How long does setup take?</h3>
-              <p className="mt-2">
-                Usually under ten minutes: add the bot, configure the webhook URL, and post in active channels to start seeing
-                useful insights.
+            <div className="rounded-lg border border-amber-700/40 bg-amber-500/10 p-4 text-sm text-amber-200">
+              <p className="flex items-start gap-2">
+                <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                Keep `LEMON_SQUEEZY_WEBHOOK_SECRET` private. It signs both webhook verification and
+                dashboard access tokens.
               </p>
             </div>
-            <div>
-              <h3 className="font-semibold text-slate-100">Can I invite multiple admins?</h3>
-              <p className="mt-2">Yes. One paid server unlock supports unlimited admin users for analytics access.</p>
-            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="mt-10">
+        <Card>
+          <CardHeader>
+            <CardTitle>FAQ</CardTitle>
+            <CardDescription>
+              Operational answers for community managers and moderators.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {faq.map((entry) => (
+              <details key={entry.question} className="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
+                <summary className="cursor-pointer font-medium text-slate-100">
+                  {entry.question}
+                </summary>
+                <p className="mt-2 text-sm leading-relaxed text-slate-300">{entry.answer}</p>
+              </details>
+            ))}
           </CardContent>
         </Card>
       </section>

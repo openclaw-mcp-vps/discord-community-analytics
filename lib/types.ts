@@ -1,87 +1,88 @@
+export type RiskLevel = "low" | "medium" | "high";
+
 export interface MessageRecord {
   id: string;
   serverId: string;
+  serverName: string;
   channelId: string;
-  memberId: string;
-  username: string;
+  channelName: string;
+  authorId: string;
+  authorUsername: string;
   content: string;
-  createdAt: string;
+  timestamp: string;
 }
 
 export interface MemberRecord {
   id: string;
-  serverId: string;
   username: string;
   joinedAt: string;
+  lastSeenAt: string;
+  messageCount: number;
   roles: string[];
-  avatarUrl?: string;
-  lastActiveAt: string;
 }
 
-export interface CheckoutSession {
-  token: string;
-  serverId: string;
-  email?: string;
-  paid: boolean;
-  createdAt: string;
-  paidAt?: string;
-  lemonOrderId?: string;
+export interface ServerRecord {
+  id: string;
+  name: string;
+  messages: MessageRecord[];
+  members: Record<string, MemberRecord>;
+  updatedAt: string;
 }
 
 export interface PurchaseRecord {
-  id: string;
+  orderId: string;
+  email: string;
   serverId: string;
-  token?: string;
-  email?: string;
-  amount?: number;
-  currency?: string;
-  status: "paid" | "refunded" | "cancelled";
-  createdAt: string;
+  status: "paid" | "pending" | "refunded";
+  productId: string;
+  updatedAt: string;
+  customerName?: string;
 }
 
-export interface WebhookEventRecord {
-  id: string;
-  source: "discord" | "lemonsqueezy";
-  receivedAt: string;
-}
-
-export interface DatabaseSchema {
-  messages: MessageRecord[];
-  members: MemberRecord[];
-  checkoutSessions: CheckoutSession[];
+export interface DataStore {
+  servers: Record<string, ServerRecord>;
   purchases: PurchaseRecord[];
-  webhookEvents: WebhookEventRecord[];
 }
 
-export interface TopContributor {
+export interface EngagementTrendPoint {
+  day: string;
+  messages: number;
+  activeMembers: number;
+}
+
+export interface ContributorMetric {
   memberId: string;
   username: string;
   messageCount: number;
   activeDays: number;
+  channelDiversity: number;
   engagementScore: number;
-  lastActiveAt: string | null;
+  lastActiveAt: string;
 }
 
-export interface DailyEngagementPoint {
-  dateISO: string;
-  dateLabel: string;
-  messageCount: number;
-  activeMembers: number;
-}
-
-export interface WordCloudTerm {
+export interface WordFrequency {
   text: string;
   value: number;
 }
 
-export interface ChurnRiskMember {
+export interface ChurnPrediction {
   memberId: string;
   username: string;
   riskScore: number;
-  riskLevel: "low" | "medium" | "high";
+  riskLevel: RiskLevel;
   daysInactive: number;
-  messagesLast7: number;
-  messagesPrevious7: number;
-  reason: string;
-  lastActiveAt: string | null;
+  recentMessages: number;
+  previousMessages: number;
+  trendDelta: number;
+}
+
+export interface ServerAnalytics {
+  serverId: string;
+  serverName: string;
+  totalMessages30d: number;
+  activeMembers30d: number;
+  averageMessagesPerDay: number;
+  engagementTrend: EngagementTrendPoint[];
+  topContributors: ContributorMetric[];
+  hotTopics: WordFrequency[];
 }

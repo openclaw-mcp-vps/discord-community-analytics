@@ -1,156 +1,172 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import { cookies } from "next/headers";
-import { redirect } from "next/navigation";
-import { BarChart3, Flame, MessageSquareText, Users } from "lucide-react";
-import { ChurnRiskList } from "@/components/ChurnRiskList";
-import { EngagementChart } from "@/components/EngagementChart";
-import { TopContributors } from "@/components/TopContributors";
-import { WordCloud } from "@/components/WordCloud";
+import EngagementChart from "@/components/EngagementChart";
+import TopContributors from "@/components/TopContributors";
+import ChurnRiskTable from "@/components/ChurnRiskTable";
+import WordCloud from "@/components/WordCloud";
+import CheckoutButton from "@/components/CheckoutButton";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { calculateChurnRisk } from "@/lib/analytics/churnPredictor";
-import { calculateEngagement } from "@/lib/analytics/engagementCalculator";
-import { getServerSnapshot } from "@/lib/database/models";
-import { ACCESS_COOKIE_NAME, hasServerAccess } from "@/lib/paywall";
-
-export const dynamic = "force-dynamic";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle
+} from "@/components/ui/card";
+import { calculateServerAnalytics } from "@/lib/analytics/engagementCalculator";
+import { predictChurnRisk, summarizeChurn } from "@/lib/analytics/churnPredictor";
+import { getServer } from "@/lib/database/models";
+import { verifyPaywallToken } from "@/lib/paywall/session";
 
 interface DashboardPageProps {
   params: Promise<{ serverId: string }>;
 }
 
+function PaywallLocked({ serverId }: { serverId: string }) {
+  return (
+    <main className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Dashboard Access Requires an Active Subscription</CardTitle>
+          <CardDescription>
+            This workspace is paywalled at $19/month per server. Complete checkout and activate
+            your purchase to unlock engagement + churn analytics.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm text-slate-300">
+          <p>
+            You are trying to access server ID <code>{serverId}</code>. If you already paid, use
+            the unlock page and provide your order ID.
+          </p>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <CheckoutButton serverId={serverId} className="w-full sm:w-auto" />
+            <Link href={`/paywall/confirm?server=${encodeURIComponent(serverId)}`} className="w-full sm:w-auto">
+              <Button variant="outline" className="w-full">
+                Activate existing purchase
+              </Button>
+            </Link>
+          </div>
+          <p className="text-xs text-slate-500">
+            Access token is stored as an HTTP-only cookie after purchase validation.
+          </p>
+        </CardContent>
+      </Card>
+    </main>
+  );
+}
+
 export default async function DashboardPage({ params }: DashboardPageProps) {
   const { serverId } = await params;
   const cookieStore = await cookies();
-  const cookieValue = cookieStore.get(ACCESS_COOKIE_NAME)?.value;
+  const rawToken = cookieStore.get("dca_paid")?.value;
 
-  if (!hasServerAccess(cookieValue, serverId)) {
-    redirect(`/?locked=1&server=${serverId}`);
+  const secret = process.env.LEMON_SQUEEZY_WEBHOOK_SECRET ?? "local-dev-secret";
+  const session = verifyPaywallToken(rawToken, secret, serverId);
+
+  if (!session) {
+    return <PaywallLocked serverId={serverId} />;
   }
 
-  const { messages, members } = getServerSnapshot(serverId);
-  const engagement = calculateEngagement(messages, members);
-  const churn = calculateChurnRisk(members, messages);
+  const server = getServer(serverId);
+  if (!server) {
+    notFound();
+  }
+
+  const analytics = calculateServerAnalytics(server);
+  const churnPredictions = predictChurnRisk(server.messages, server.members);
+  const churnSummary = summarizeChurn(churnPredictions);
 
   return (
-    <main className="mx-auto min-h-screen max-w-7xl px-6 py-10">
-      <header className="mb-8 flex flex-wrap items-center justify-between gap-4">
+    <main className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+      <section className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <p className="text-xs uppercase tracking-[0.18em] text-blue-300">Paid Analytics Workspace</p>
-          <h1 className="mt-2 text-3xl font-bold text-slate-100">Discord Server {serverId}</h1>
-          <p className="mt-2 max-w-2xl text-sm text-slate-400">
-            Retention-first analytics across contribution quality, participation momentum, and churn risk.
+          <h1 className="text-3xl font-semibold text-slate-100">{analytics.serverName}</h1>
+          <p className="mt-1 text-sm text-slate-400">
+            Engagement + churn intelligence for server <code>{analytics.serverId}</code>
           </p>
         </div>
-        <Link className="text-sm text-blue-300 underline-offset-4 hover:underline" href="/">
-          Manage plan
-        </Link>
-      </header>
+        <div className="flex items-center gap-2">
+          <Badge variant="info">Paid Access</Badge>
+          <Link href="/">
+            <Button variant="outline">Back to landing</Button>
+          </Link>
+        </div>
+      </section>
 
-      <section className="mb-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <Card className="bg-[#111926]">
-          <CardHeader className="pb-2">
-            <CardDescription>Messages (30d)</CardDescription>
-            <CardTitle className="flex items-center gap-2 text-2xl">
-              <MessageSquareText className="h-5 w-5 text-blue-300" />
-              {engagement.summary.totalMessages30d}
-            </CardTitle>
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardDescription>Total Messages (30d)</CardDescription>
+            <CardTitle className="text-3xl">{analytics.totalMessages30d}</CardTitle>
           </CardHeader>
         </Card>
-        <Card className="bg-[#111926]">
-          <CardHeader className="pb-2">
+        <Card>
+          <CardHeader className="pb-3">
             <CardDescription>Active Members (30d)</CardDescription>
-            <CardTitle className="flex items-center gap-2 text-2xl">
-              <Users className="h-5 w-5 text-emerald-300" />
-              {engagement.summary.activeMembers30d}
-            </CardTitle>
+            <CardTitle className="text-3xl">{analytics.activeMembers30d}</CardTitle>
           </CardHeader>
         </Card>
-        <Card className="bg-[#111926]">
-          <CardHeader className="pb-2">
-            <CardDescription>Avg messages/day</CardDescription>
-            <CardTitle className="flex items-center gap-2 text-2xl">
-              <BarChart3 className="h-5 w-5 text-indigo-300" />
-              {engagement.summary.avgMessagesPerDay}
-            </CardTitle>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardDescription>Avg Messages / Day</CardDescription>
+            <CardTitle className="text-3xl">{analytics.averageMessagesPerDay}</CardTitle>
           </CardHeader>
         </Card>
-        <Card className="bg-[#111926]">
-          <CardHeader className="pb-2">
-            <CardDescription>Momentum</CardDescription>
-            <CardTitle className="flex items-center gap-2 text-2xl">
-              <Flame className="h-5 w-5 text-amber-300" />
-              {engagement.summary.momentum.toUpperCase()}
-            </CardTitle>
+        <Card>
+          <CardHeader className="pb-3">
+            <CardDescription>Average Churn Risk</CardDescription>
+            <CardTitle className="text-3xl">{churnSummary.averageScore}</CardTitle>
           </CardHeader>
         </Card>
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-2">
-        <Card className="bg-[#111926]">
+      <section className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
+        <Card>
           <CardHeader>
-            <CardTitle>Message Frequency + Active Members</CardTitle>
-            <CardDescription>14-day trend to detect momentum changes early.</CardDescription>
+            <CardTitle>Message Frequency Trend</CardTitle>
+            <CardDescription>
+              Daily conversation volume over the last 30 days to detect momentum shifts.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <EngagementChart data={engagement.trend} />
+            <EngagementChart data={analytics.engagementTrend} />
+          </CardContent>
+        </Card>
+        <TopContributors contributors={analytics.topContributors} />
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>At-Risk Members</CardTitle>
+            <CardDescription>
+              Start with high-risk members for proactive check-ins and role-specific reactivation.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-4 flex flex-wrap gap-2">
+              <Badge variant="danger">High: {churnSummary.high}</Badge>
+              <Badge variant="warning">Medium: {churnSummary.medium}</Badge>
+              <Badge variant="success">Low: {churnSummary.low}</Badge>
+            </div>
+            <ChurnRiskTable predictions={churnPredictions} />
           </CardContent>
         </Card>
 
-        <Card className="bg-[#111926]">
+        <Card>
           <CardHeader>
-            <CardTitle>Hot Topics Word Cloud</CardTitle>
-            <CardDescription>Most repeated conversation themes from recent activity.</CardDescription>
+            <CardTitle>Hot Topics</CardTitle>
+            <CardDescription>
+              Word cloud from recent chat to show what the community is discussing now.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <WordCloud terms={engagement.wordCloud} />
+            <WordCloud words={analytics.hotTopics} />
           </CardContent>
         </Card>
       </section>
-
-      <section className="mt-6 grid gap-6 lg:grid-cols-2">
-        <Card className="bg-[#111926]">
-          <CardHeader>
-            <CardTitle>Top Contributors</CardTitle>
-            <CardDescription>Consistency-weighted leaderboard from the last 30 days.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <TopContributors contributors={engagement.topContributors} />
-          </CardContent>
-        </Card>
-
-        <Card className="bg-[#111926]">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              Churn Risk Watchlist
-              <Badge variant="danger">{churn.highRiskCount} high risk</Badge>
-            </CardTitle>
-            <CardDescription>Members with declining activity patterns that need intervention.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ChurnRiskList members={churn.atRiskMembers} />
-          </CardContent>
-        </Card>
-      </section>
-
-      {messages.length === 0 ? (
-        <section className="mt-6 rounded-xl border border-slate-800 bg-[#111926] p-5 text-sm text-slate-300">
-          <p className="font-semibold text-slate-100">No data ingested yet.</p>
-          <p className="mt-2">Connect your Discord bot webhook to start collecting messages and member activity.</p>
-          <pre className="mt-3 overflow-x-auto rounded-md bg-slate-950 p-3 text-xs text-slate-200">
-            {`POST /api/webhook/discord\n{
-  "type": "message.created",
-  "eventId": "evt_123",
-  "serverId": "${serverId}",
-  "channelId": "987654321",
-  "memberId": "11223344",
-  "username": "community-lead",
-  "content": "Let's run a growth sprint this week.",
-  "createdAt": "${new Date().toISOString()}"
-}`}
-          </pre>
-        </section>
-      ) : null}
     </main>
   );
 }

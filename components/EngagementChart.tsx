@@ -1,44 +1,62 @@
 "use client";
 
-import { Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { DailyEngagementPoint } from "@/lib/types";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis
+} from "recharts";
+import type { EngagementTrendPoint } from "@/lib/types";
 
 interface EngagementChartProps {
-  data: DailyEngagementPoint[];
+  data: EngagementTrendPoint[];
 }
 
-export function EngagementChart({ data }: EngagementChartProps) {
+export default function EngagementChart({ data }: EngagementChartProps) {
   return (
     <div className="h-[320px] w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data}>
-          <XAxis dataKey="dateLabel" stroke="#7d8590" tickLine={false} axisLine={false} />
-          <YAxis stroke="#7d8590" tickLine={false} axisLine={false} allowDecimals={false} />
+        <AreaChart data={data} margin={{ top: 12, right: 16, left: 0, bottom: 4 }}>
+          <defs>
+            <linearGradient id="messagesGradient" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#38bdf8" stopOpacity={0.7} />
+              <stop offset="95%" stopColor="#38bdf8" stopOpacity={0.08} />
+            </linearGradient>
+          </defs>
+          <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+          <XAxis
+            dataKey="day"
+            tick={{ fill: "#64748b", fontSize: 11 }}
+            minTickGap={18}
+            tickLine={false}
+            axisLine={{ stroke: "#1e293b" }}
+          />
+          <YAxis
+            tick={{ fill: "#64748b", fontSize: 11 }}
+            tickLine={false}
+            axisLine={{ stroke: "#1e293b" }}
+          />
           <Tooltip
             contentStyle={{
-              backgroundColor: "#161b22",
-              borderColor: "#30363d",
-              borderRadius: "0.5rem",
-              color: "#e6edf3"
+              backgroundColor: "#0b1220",
+              borderColor: "#1e293b",
+              color: "#dbeafe"
             }}
+            labelStyle={{ color: "#94a3b8" }}
           />
-          <Line
+          <Area
             type="monotone"
-            dataKey="messageCount"
-            stroke="#58a6ff"
-            strokeWidth={2.5}
-            dot={false}
+            dataKey="messages"
+            stroke="#38bdf8"
+            fillOpacity={1}
+            fill="url(#messagesGradient)"
+            strokeWidth={2}
             name="Messages"
           />
-          <Line
-            type="monotone"
-            dataKey="activeMembers"
-            stroke="#7ee787"
-            strokeWidth={2.5}
-            dot={false}
-            name="Active Members"
-          />
-        </LineChart>
+        </AreaChart>
       </ResponsiveContainer>
     </div>
   );

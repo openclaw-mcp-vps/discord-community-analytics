@@ -1,34 +1,67 @@
 import type { Metadata } from "next";
 import Script from "next/script";
-import type { ReactNode } from "react";
-import "@/app/globals.css";
+import { Space_Grotesk, IBM_Plex_Mono } from "next/font/google";
+import "./globals.css";
+
+const headingFont = Space_Grotesk({
+  subsets: ["latin"],
+  variable: "--font-heading",
+  display: "swap"
+});
+
+const bodyFont = IBM_Plex_Mono({
+  subsets: ["latin"],
+  variable: "--font-body",
+  weight: ["400", "500", "600"],
+  display: "swap"
+});
+
+const title = "Discord Community Analytics | Engagement + Churn Insights";
+const description =
+  "Track who drives conversation, detect churn risk early, and surface hot topics in your Discord community.";
 
 export const metadata: Metadata = {
-  title: "Discord Community Analytics | Engagement + Churn Prediction",
-  description:
-    "Track top contributors, engagement trends, churn risk, and hot topics in your Discord server with a bot-first analytics dashboard.",
-  metadataBase: new URL("https://discord-community-analytics.app"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"),
+  title,
+  description,
+  keywords: [
+    "discord analytics",
+    "community health",
+    "churn prediction",
+    "discord dashboard",
+    "engagement tracking"
+  ],
   openGraph: {
-    title: "Discord Community Analytics",
-    description:
-      "Know which members drive engagement and predict churn before your community goes quiet.",
+    title,
+    description,
     type: "website",
-    url: "https://discord-community-analytics.app"
+    url: "/",
+    siteName: "Discord Community Analytics"
   },
   twitter: {
     card: "summary_large_image",
-    title: "Discord Community Analytics",
-    description:
-      "Identify at-risk members and growth opportunities with engagement-focused Discord analytics."
+    title,
+    description
+  },
+  robots: {
+    index: true,
+    follow: true
   }
 };
 
-export default function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({
+  children
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
     <html lang="en">
-      <body>
-        <Script src="https://app.lemonsqueezy.com/js/lemon.js" strategy="afterInteractive" />
+      <body className={`${headingFont.variable} ${bodyFont.variable} font-mono antialiased`}>
         {children}
+        <Script
+          src="https://assets.lemonsqueezy.com/lemon.js"
+          strategy="afterInteractive"
+        />
       </body>
     </html>
   );

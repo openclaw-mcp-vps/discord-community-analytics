@@ -1,155 +1,240 @@
-import { differenceInCalendarDays, format, parseISO, startOfDay, subDays } from "date-fns";
-import type { DailyEngagementPoint, MemberRecord, MessageRecord, TopContributor, WordCloudTerm } from "@/lib/types";
+import {
+  format,
+  isAfter,
+  isWithinInterval,
+  parseISO,
+  startOfDay,
+  subDays
+} from "date-fns";
+import type {
+  ContributorMetric,
+  EngagementTrendPoint,
+  MemberRecord,
+  MessageRecord,
+  ServerAnalytics,
+  ServerRecord,
+  WordFrequency
+} from "@/lib/types";
 
 const STOP_WORDS = new Set([
   "the",
   "and",
+  "for",
   "that",
   "with",
-  "have",
   "this",
   "from",
+  "have",
   "your",
-  "will",
   "just",
-  "they",
-  "them",
-  "for",
-  "are",
-  "was",
-  "were",
-  "our",
   "about",
+  "into",
+  "like",
   "what",
   "when",
-  "which",
-  "into",
   "then",
-  "than",
+  "will",
+  "they",
+  "them",
+  "their",
+  "were",
+  "there",
+  "here",
   "you",
+  "our",
+  "out",
+  "let",
   "can",
-  "cant",
-  "dont",
-  "im",
+  "are",
+  "new",
+  "now",
+  "but",
+  "not",
+  "use",
+  "more",
+  "need",
+  "some",
+  "also",
+  "into",
+  "after",
+  "still",
+  "very",
+  "how",
+  "why",
+  "has",
+  "had",
+  "was",
   "its",
+  "it's",
+  "rt",
   "https",
-  "discord",
-  "server"
+  "http",
+  "com",
+  "discord"
 ]);
 
-export interface EngagementResult {
-  topContributors: TopContributor[];
-  trend: DailyEngagementPoint[];
-  wordCloud: WordCloudTerm[];
-  summary: {
-    totalMessages30d: number;
-    activeMembers30d: number;
-    avgMessagesPerDay: number;
-    momentum: "up" | "flat" | "down";
-  };
-}
+export function calculateMessageTrend(
+  messages: MessageRecord[],
+  days = 30
+): EngagementTrendPoint[] {
+  const end = new Date();
+  const start = subDays(startOfDay(end), days - 1);
+  const buckets = new Map<string, { messages: number; members: Set<string> }>();
 
-function sanitizeWord(rawWord: string): string {
-  return rawWord
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "")
-    .trim();
-}
-
-export function calculateEngagement(messages: MessageRecord[], members: MemberRecord[]): EngagementResult {
-  const now = new Date();
-  const horizon = subDays(now, 30);
-  const trendHorizon = subDays(now, 13);
-
-  const recentMessages = messages.filter((message) => parseISO(message.createdAt) >= horizon);
-  const messagesByMember = new Map<string, MessageRecord[]>();
-
-  for (const message of recentMessages) {
-    const bucket = messagesByMember.get(message.memberId) ?? [];
-    bucket.push(message);
-    messagesByMember.set(message.memberId, bucket);
+  for (let offset = 0; offset < days; offset += 1) {
+    const day = format(subDays(startOfDay(end), days - 1 - offset), "yyyy-MM-dd");
+    buckets.set(day, { messages: 0, members: new Set() });
   }
 
-  const topContributors: TopContributor[] = [...messagesByMember.entries()]
-    .map(([memberId, memberMessages]) => {
-      const activeDays = new Set(memberMessages.map((entry) => startOfDay(parseISO(entry.createdAt)).toISOString())).size;
-      const mostRecent = memberMessages.reduce(
-        (latest, entry) => (entry.createdAt > latest ? entry.createdAt : latest),
-        memberMessages[0]?.createdAt ?? null
-      );
-      const recencyBoost = mostRecent
-        ? Math.max(0, 7 - differenceInCalendarDays(now, parseISO(mostRecent)))
-        : 0;
-      const engagementScore = memberMessages.length + activeDays * 2 + recencyBoost;
-      const member = members.find((candidate) => candidate.id === memberId);
+  for (const message of messages) {
+    const timestamp = parseISO(message.timestamp);
+    if (
+      !isWithinInterval(timestamp, {
+        start,
+        end
+      })
+    ) {
+      continue;
+    }
 
-      return {
-        memberId,
-        username: member?.username ?? memberMessages[0]?.username ?? "Unknown member",
-        messageCount: memberMessages.length,
-        activeDays,
-        engagementScore,
-        lastActiveAt: mostRecent
-      };
-    })
+    const dayKey = format(timestamp, "yyyy-MM-dd");
+    const bucket = buckets.get(dayKey);
+    if (!bucket) {
+      continue;
+    }
+    bucket.messages += 1;
+    bucket.members.add(message.authorId);
+  }
+
+  return Array.from(buckets.entries()).map(([day, bucket]) => ({
+    day,
+    messages: bucket.messages,
+    activeMembers: bucket.members.size
+  }));
+}
+
+export function calculateTopContributors(
+  messages: MessageRecord[],
+  members: Record<string, MemberRecord>,
+  days = 30,
+  limit = 8
+): ContributorMetric[] {
+  const cutoff = subDays(new Date(), days);
+  const stats = new Map<
+    string,
+    {
+      count: number;
+      channels: Set<string>;
+      activeDays: Set<string>;
+      lastActiveAt: string;
+    }
+  >();
+
+  for (const message of messages) {
+    const timestamp = parseISO(message.timestamp);
+    if (!isAfter(timestamp, cutoff)) {
+      continue;
+    }
+
+    const entry = stats.get(message.authorId) ?? {
+      count: 0,
+      channels: new Set<string>(),
+      activeDays: new Set<string>(),
+      lastActiveAt: message.timestamp
+    };
+
+    entry.count += 1;
+    entry.channels.add(message.channelId);
+    entry.activeDays.add(format(timestamp, "yyyy-MM-dd"));
+    if (message.timestamp > entry.lastActiveAt) {
+      entry.lastActiveAt = message.timestamp;
+    }
+    stats.set(message.authorId, entry);
+  }
+
+  const results = Array.from(stats.entries()).map(([memberId, entry]) => {
+    const member = members[memberId];
+    const engagementScore = Math.round(
+      entry.count * 0.65 + entry.channels.size * 8 + entry.activeDays.size * 3
+    );
+
+    return {
+      memberId,
+      username: member?.username ?? memberId,
+      messageCount: entry.count,
+      activeDays: entry.activeDays.size,
+      channelDiversity: entry.channels.size,
+      engagementScore,
+      lastActiveAt: entry.lastActiveAt
+    } satisfies ContributorMetric;
+  });
+
+  return results
     .sort((a, b) => b.engagementScore - a.engagementScore)
-    .slice(0, 12);
+    .slice(0, limit);
+}
 
-  const trend: DailyEngagementPoint[] = [];
+export function extractHotTopics(
+  messages: MessageRecord[],
+  days = 14,
+  limit = 40
+): WordFrequency[] {
+  const cutoff = subDays(new Date(), days);
+  const counts = new Map<string, number>();
 
-  for (let offset = 13; offset >= 0; offset -= 1) {
-    const date = subDays(now, offset);
-    const dateKey = format(date, "yyyy-MM-dd");
+  for (const message of messages) {
+    const timestamp = parseISO(message.timestamp);
+    if (!isAfter(timestamp, cutoff)) {
+      continue;
+    }
 
-    const dayMessages = messages.filter((message) => format(parseISO(message.createdAt), "yyyy-MM-dd") === dateKey);
-    const activeMembers = new Set(dayMessages.map((message) => message.memberId)).size;
+    const clean = message.content
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
 
-    trend.push({
-      dateISO: dateKey,
-      dateLabel: format(date, "MMM d"),
-      messageCount: dayMessages.length,
-      activeMembers
-    });
-  }
-
-  const wordMap = new Map<string, number>();
-
-  for (const message of recentMessages) {
-    const words = message.content.split(/\s+/g).map(sanitizeWord);
-
-    for (const word of words) {
-      if (word.length < 3 || STOP_WORDS.has(word)) {
+    for (const rawWord of clean.split(" ")) {
+      if (!rawWord || rawWord.length < 3 || rawWord.length > 24) {
         continue;
       }
-
-      wordMap.set(word, (wordMap.get(word) ?? 0) + 1);
+      if (STOP_WORDS.has(rawWord)) {
+        continue;
+      }
+      const next = (counts.get(rawWord) ?? 0) + 1;
+      counts.set(rawWord, next);
     }
   }
 
-  const wordCloud: WordCloudTerm[] = [...wordMap.entries()]
+  return Array.from(counts.entries())
+    .filter(([, count]) => count >= 2)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 50)
+    .slice(0, limit)
     .map(([text, value]) => ({ text, value }));
+}
 
-  const totalMessages30d = recentMessages.length;
-  const activeMembers30d = new Set(recentMessages.map((message) => message.memberId)).size;
-  const avgMessagesPerDay = Number((totalMessages30d / 30).toFixed(1));
+export function calculateServerAnalytics(server: ServerRecord): ServerAnalytics {
+  const trend = calculateMessageTrend(server.messages, 30);
+  const topContributors = calculateTopContributors(server.messages, server.members, 30, 8);
+  const hotTopics = extractHotTopics(server.messages, 14, 45);
+  const totalMessages30d = trend.reduce((sum, point) => sum + point.messages, 0);
+  const activeMemberSet = new Set<string>();
 
-  const firstWeek = trend.slice(0, 7).reduce((sum, item) => sum + item.messageCount, 0);
-  const lastWeek = trend.slice(-7).reduce((sum, item) => sum + item.messageCount, 0);
-
-  const momentum: EngagementResult["summary"]["momentum"] =
-    lastWeek > firstWeek * 1.1 ? "up" : lastWeek < firstWeek * 0.9 ? "down" : "flat";
+  const cutoff = subDays(new Date(), 30);
+  for (const message of server.messages) {
+    if (isAfter(parseISO(message.timestamp), cutoff)) {
+      activeMemberSet.add(message.authorId);
+    }
+  }
 
   return {
+    serverId: server.id,
+    serverName: server.name,
+    totalMessages30d,
+    activeMembers30d: activeMemberSet.size,
+    averageMessagesPerDay: Math.round(totalMessages30d / 30),
+    engagementTrend: trend,
     topContributors,
-    trend,
-    wordCloud,
-    summary: {
-      totalMessages30d,
-      activeMembers30d,
-      avgMessagesPerDay,
-      momentum
-    }
+    hotTopics
   };
 }

@@ -1,42 +1,64 @@
-const {
+import {
   Client,
+  Events,
   GatewayIntentBits,
-  Partials,
-} = require("discord.js");
-const { initMessageCollector } = require("./collectors/messageCollector");
-const { initMemberCollector } = require("./collectors/memberCollector");
+  Partials
+} from "discord.js";
+import { collectMessage } from "./collectors/messageCollector.js";
+import {
+  collectMemberJoin,
+  collectMemberUpdate
+} from "./collectors/memberCollector.js";
 
-const token = process.env.DISCORD_BOT_TOKEN;
-const analyticsWebhookUrl =
-  process.env.DCA_ANALYTICS_WEBHOOK_URL || "http://localhost:3000/api/webhook/discord";
-const ingestSecret = process.env.DISCORD_INGEST_SECRET || "";
+const required = ["DISCORD_BOT_TOKEN", "ANALYTICS_WEBHOOK_URL", "DISCORD_WEBHOOK_SECRET"];
+const missing = required.filter((name) => !process.env[name]);
 
-if (!token) {
-  throw new Error("DISCORD_BOT_TOKEN is required.");
+if (missing.length > 0) {
+  console.error(`Missing required environment variables: ${missing.join(", ")}`);
+  process.exit(1);
 }
+
+const config = {
+  webhookUrl: process.env.ANALYTICS_WEBHOOK_URL,
+  webhookSecret: process.env.DISCORD_WEBHOOK_SECRET
+};
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers
   ],
-  partials: [Partials.Channel],
+  partials: [Partials.Channel]
 });
 
-client.once("ready", () => {
-  console.log(`[discord-bot] Logged in as ${client.user.tag}`);
+client.once(Events.ClientReady, (readyClient) => {
+  console.log(`Discord analytics bot online as ${readyClient.user.tag}`);
 });
 
-initMessageCollector(client, {
-  webhookUrl: analyticsWebhookUrl,
-  ingestSecret,
+client.on(Events.MessageCreate, async (message) => {
+  try {
+    await collectMessage(message, config);
+  } catch (error) {
+    console.error("Failed to send message event", error.message);
+  }
 });
 
-initMemberCollector(client, {
-  webhookUrl: analyticsWebhookUrl,
-  ingestSecret,
+client.on(Events.GuildMemberAdd, async (member) => {
+  try {
+    await collectMemberJoin(member, config);
+  } catch (error) {
+    console.error("Failed to send member join event", error.message);
+  }
 });
 
-client.login(token);
+client.on(Events.GuildMemberUpdate, async (_oldMember, newMember) => {
+  try {
+    await collectMemberUpdate(newMember, config);
+  } catch (error) {
+    console.error("Failed to send member update event", error.message);
+  }
+});
+
+client.login(process.env.DISCORD_BOT_TOKEN);

@@ -1,285 +1,279 @@
-import fs from "node:fs";
-import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from "fs";
+import path from "path";
+import { subDays } from "date-fns";
 import type {
-  CheckoutSession,
-  DatabaseSchema,
+  DataStore,
   MemberRecord,
   MessageRecord,
   PurchaseRecord,
-  WebhookEventRecord
+  ServerRecord
 } from "@/lib/types";
 
 const DATA_DIR = path.join(process.cwd(), "data");
-const DB_FILE = path.join(DATA_DIR, "db.json");
+const STORE_PATH = path.join(DATA_DIR, "analytics-store.json");
+const DEMO_SERVER_ID = "demo-server";
 
-const EMPTY_DB: DatabaseSchema = {
-  messages: [],
-  members: [],
-  checkoutSessions: [],
-  purchases: [],
-  webhookEvents: []
-};
-
-function ensureDatabase(): void {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-
-  if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify(EMPTY_DB, null, 2), "utf8");
-  }
-}
-
-function saveDatabase(database: DatabaseSchema): void {
-  ensureDatabase();
-  fs.writeFileSync(DB_FILE, JSON.stringify(database, null, 2), "utf8");
-}
-
-export function readDatabase(): DatabaseSchema {
-  ensureDatabase();
-
-  try {
-    const raw = fs.readFileSync(DB_FILE, "utf8");
-    const parsed = JSON.parse(raw) as Partial<DatabaseSchema>;
-
-    return {
-      messages: parsed.messages ?? [],
-      members: parsed.members ?? [],
-      checkoutSessions: parsed.checkoutSessions ?? [],
-      purchases: parsed.purchases ?? [],
-      webhookEvents: parsed.webhookEvents ?? []
-    };
-  } catch {
-    saveDatabase(EMPTY_DB);
-    return { ...EMPTY_DB };
-  }
-}
-
-export function recordWebhookEvent(source: WebhookEventRecord["source"], id: string): boolean {
-  const database = readDatabase();
-
-  if (database.webhookEvents.some((event) => event.source === source && event.id === id)) {
-    return false;
-  }
-
-  database.webhookEvents.push({
-    source,
-    id,
-    receivedAt: new Date().toISOString()
-  });
-
-  if (database.webhookEvents.length > 5000) {
-    database.webhookEvents = database.webhookEvents.slice(-5000);
-  }
-
-  saveDatabase(database);
-  return true;
-}
-
-export function upsertMember(input: Omit<MemberRecord, "joinedAt" | "lastActiveAt"> & Partial<Pick<MemberRecord, "joinedAt" | "lastActiveAt">>): MemberRecord {
-  const database = readDatabase();
-  const now = new Date().toISOString();
-  const index = database.members.findIndex((member) => member.serverId === input.serverId && member.id === input.id);
-
-  const normalized: MemberRecord = {
-    id: input.id,
-    serverId: input.serverId,
-    username: input.username,
-    roles: input.roles ?? [],
-    avatarUrl: input.avatarUrl,
-    joinedAt: input.joinedAt ?? now,
-    lastActiveAt: input.lastActiveAt ?? now
-  };
-
-  if (index >= 0) {
-    const current = database.members[index];
-    database.members[index] = {
-      ...current,
-      ...normalized,
-      joinedAt: current.joinedAt || normalized.joinedAt,
-      lastActiveAt: input.lastActiveAt ?? current.lastActiveAt ?? now
-    };
-  } else {
-    database.members.push(normalized);
-  }
-
-  saveDatabase(database);
-
-  return index >= 0 ? database.members[index] : normalized;
-}
-
-export function addMessage(input: Omit<MessageRecord, "id" | "createdAt"> & Partial<Pick<MessageRecord, "id" | "createdAt">>): MessageRecord {
-  const database = readDatabase();
-
-  const createdMessage: MessageRecord = {
-    id: input.id ?? randomUUID(),
-    serverId: input.serverId,
-    channelId: input.channelId,
-    memberId: input.memberId,
-    username: input.username,
-    content: input.content,
-    createdAt: input.createdAt ?? new Date().toISOString()
-  };
-
-  const existingIndex = database.messages.findIndex(
-    (message) => message.id === createdMessage.id && message.serverId === createdMessage.serverId
-  );
-
-  if (existingIndex === -1) {
-    database.messages.push(createdMessage);
-  }
-
-  const memberIndex = database.members.findIndex(
-    (member) => member.serverId === createdMessage.serverId && member.id === createdMessage.memberId
-  );
-
-  if (memberIndex >= 0) {
-    database.members[memberIndex] = {
-      ...database.members[memberIndex],
-      username: createdMessage.username,
-      lastActiveAt: createdMessage.createdAt
-    };
-  } else {
-    database.members.push({
-      id: createdMessage.memberId,
-      serverId: createdMessage.serverId,
-      username: createdMessage.username,
-      roles: [],
-      joinedAt: createdMessage.createdAt,
-      lastActiveAt: createdMessage.createdAt
-    });
-  }
-
-  if (database.messages.length > 200_000) {
-    database.messages = database.messages.slice(-200_000);
-  }
-
-  saveDatabase(database);
-  return createdMessage;
-}
-
-export function getServerSnapshot(serverId: string): { messages: MessageRecord[]; members: MemberRecord[] } {
-  const database = readDatabase();
-
+function createEmptyStore(): DataStore {
   return {
-    messages: database.messages
-      .filter((message) => message.serverId === serverId)
-      .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
-    members: database.members
-      .filter((member) => member.serverId === serverId)
-      .sort((a, b) => a.username.localeCompare(b.username))
+    servers: {},
+    purchases: []
   };
 }
 
-export function listKnownServerIds(): string[] {
-  const database = readDatabase();
-  const serverIds = new Set<string>();
-
-  for (const member of database.members) {
-    serverIds.add(member.serverId);
-  }
-
-  for (const message of database.messages) {
-    serverIds.add(message.serverId);
-  }
-
-  return [...serverIds].sort();
-}
-
-export function createCheckoutSession(serverId: string, email?: string): CheckoutSession {
-  const database = readDatabase();
-
-  const session: CheckoutSession = {
-    token: randomUUID(),
-    serverId,
-    email,
-    paid: false,
-    createdAt: new Date().toISOString()
+function seededRandom(seed: number) {
+  let value = seed;
+  return () => {
+    value = (value * 1664525 + 1013904223) % 4294967296;
+    return value / 4294967296;
   };
-
-  database.checkoutSessions.push(session);
-  saveDatabase(database);
-
-  return session;
 }
 
-export function markCheckoutPaid(input: {
-  token?: string;
-  serverId?: string;
-  email?: string;
-  lemonOrderId?: string;
-  amount?: number;
-  currency?: string;
-}): PurchaseRecord | null {
-  const database = readDatabase();
-  const now = new Date().toISOString();
+function createSeedServer(): ServerRecord {
+  const now = new Date();
+  const random = seededRandom(42);
+  const channels = [
+    { id: "101", name: "general" },
+    { id: "102", name: "announcements" },
+    { id: "103", name: "support" },
+    { id: "104", name: "showcase" },
+    { id: "105", name: "off-topic" }
+  ];
 
-  let matchedSession: CheckoutSession | undefined;
+  const blueprints = [
+    { id: "u1", name: "Avery", base: 9, recentMultiplier: 1.2 },
+    { id: "u2", name: "Maya", base: 7, recentMultiplier: 1.0 },
+    { id: "u3", name: "Noah", base: 8, recentMultiplier: 0.9 },
+    { id: "u4", name: "Jordan", base: 6, recentMultiplier: 0.45 },
+    { id: "u5", name: "Riley", base: 5, recentMultiplier: 0.35 },
+    { id: "u6", name: "Kai", base: 4, recentMultiplier: 0.85 },
+    { id: "u7", name: "Sasha", base: 4, recentMultiplier: 0.95 },
+    { id: "u8", name: "Diego", base: 5, recentMultiplier: 0.8 },
+    { id: "u9", name: "Imani", base: 3, recentMultiplier: 0.7 },
+    { id: "u10", name: "Priya", base: 4, recentMultiplier: 0.6 },
+    { id: "u11", name: "Leo", base: 2, recentMultiplier: 0.2 },
+    { id: "u12", name: "Nina", base: 3, recentMultiplier: 0.3 }
+  ];
 
-  if (input.token) {
-    matchedSession = database.checkoutSessions.find((session) => session.token === input.token);
+  const phrases = [
+    "Launching the onboarding sprint next week",
+    "New moderation policy draft is ready for review",
+    "Community spotlight submissions are open now",
+    "Support queue response time improved after tagging",
+    "Let's run a poll for game night format",
+    "Weekly digest needs volunteer editors",
+    "Retention dip appeared in the creator segment",
+    "Could we improve newcomer welcome messages",
+    "Voice stage recap posted in announcements",
+    "Sharing growth experiment results from this month",
+    "People liked the challenge leaderboard feature",
+    "Can we pair mentors with first-time members",
+    "Testing anti-spam threshold in support channel",
+    "Feedback shows people want clearer role perks",
+    "Working on referral campaign tracking dashboard"
+  ];
+
+  const members: Record<string, MemberRecord> = {};
+  for (const profile of blueprints) {
+    members[profile.id] = {
+      id: profile.id,
+      username: profile.name,
+      joinedAt: subDays(now, 180 + Math.floor(random() * 250)).toISOString(),
+      lastSeenAt: subDays(now, Math.floor(random() * 3)).toISOString(),
+      messageCount: 0,
+      roles: ["member"]
+    };
   }
 
-  const serverId = input.serverId ?? matchedSession?.serverId;
-  if (!serverId) {
-    return null;
-  }
+  const messages: MessageRecord[] = [];
 
-  if (matchedSession) {
-    matchedSession.paid = true;
-    matchedSession.paidAt = now;
-    matchedSession.lemonOrderId = input.lemonOrderId;
-    matchedSession.email = matchedSession.email ?? input.email;
-  }
+  for (let daysAgo = 70; daysAgo >= 0; daysAgo -= 1) {
+    const dayDate = subDays(now, daysAgo);
+    const isWeekend = dayDate.getDay() === 0 || dayDate.getDay() === 6;
 
-  const recordId = input.lemonOrderId ?? `manual-${randomUUID()}`;
-  const existing = database.purchases.find((purchase) => purchase.id === recordId);
+    for (const profile of blueprints) {
+      const weeklyPattern = isWeekend ? 0.7 : 1;
+      const recentPattern = daysAgo <= 14 ? profile.recentMultiplier : 1;
+      const noise = 0.8 + random() * 0.8;
+      const expectedMessages = profile.base * weeklyPattern * recentPattern * noise;
+      const messageCount = Math.max(0, Math.round(expectedMessages));
 
-  const purchaseRecord: PurchaseRecord = existing ?? {
-    id: recordId,
-    serverId,
-    token: input.token ?? matchedSession?.token,
-    email: input.email ?? matchedSession?.email,
-    amount: input.amount,
-    currency: input.currency,
-    status: "paid",
-    createdAt: now
-  };
-
-  if (existing) {
-    existing.status = "paid";
-    existing.email = existing.email ?? purchaseRecord.email;
-    existing.amount = existing.amount ?? input.amount;
-    existing.currency = existing.currency ?? input.currency;
-    existing.serverId = existing.serverId || serverId;
-    existing.token = existing.token ?? input.token;
-  } else {
-    database.purchases.push(purchaseRecord);
-  }
-
-  saveDatabase(database);
-  return purchaseRecord;
-}
-
-export function hasPaidAccess(serverId: string, token?: string): boolean {
-  const database = readDatabase();
-
-  if (token) {
-    const session = database.checkoutSessions.find((checkout) => checkout.token === token);
-    if (session && session.serverId === serverId && session.paid) {
-      return true;
+      for (let i = 0; i < messageCount; i += 1) {
+        const channel = channels[Math.floor(random() * channels.length)] ?? channels[0];
+        const minuteOffset = Math.floor(random() * 1200);
+        const messageDate = new Date(dayDate.getTime() + minuteOffset * 60_000);
+        const phrase = phrases[Math.floor(random() * phrases.length)] ?? "Checking in";
+        const record: MessageRecord = {
+          id: `seed-${daysAgo}-${profile.id}-${i}`,
+          serverId: DEMO_SERVER_ID,
+          serverName: "Growth Guild Demo",
+          channelId: channel.id,
+          channelName: channel.name,
+          authorId: profile.id,
+          authorUsername: profile.name,
+          content: phrase,
+          timestamp: messageDate.toISOString()
+        };
+        messages.push(record);
+        members[profile.id].messageCount += 1;
+        if (messageDate.toISOString() > members[profile.id].lastSeenAt) {
+          members[profile.id].lastSeenAt = messageDate.toISOString();
+        }
+      }
     }
   }
 
-  return database.purchases.some((purchase) => purchase.serverId === serverId && purchase.status === "paid");
+  return {
+    id: DEMO_SERVER_ID,
+    name: "Growth Guild Demo",
+    messages: messages.sort((a, b) =>
+      a.timestamp.localeCompare(b.timestamp)
+    ),
+    members,
+    updatedAt: now.toISOString()
+  };
 }
 
-export function getRecentPurchaseForServer(serverId: string): PurchaseRecord | null {
-  const database = readDatabase();
-  const candidates = database.purchases
-    .filter((purchase) => purchase.serverId === serverId && purchase.status === "paid")
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+function ensureDataStoreExists() {
+  if (!existsSync(DATA_DIR)) {
+    mkdirSync(DATA_DIR, { recursive: true });
+  }
 
-  return candidates[0] ?? null;
+  if (!existsSync(STORE_PATH)) {
+    const initial = createEmptyStore();
+    initial.servers[DEMO_SERVER_ID] = createSeedServer();
+    writeFileSync(STORE_PATH, JSON.stringify(initial, null, 2), "utf-8");
+  }
+}
+
+function readStore(): DataStore {
+  ensureDataStoreExists();
+  const raw = readFileSync(STORE_PATH, "utf-8");
+  const parsed = JSON.parse(raw) as DataStore;
+
+  if (!parsed.servers[DEMO_SERVER_ID]) {
+    parsed.servers[DEMO_SERVER_ID] = createSeedServer();
+    writeStore(parsed);
+  }
+
+  return parsed;
+}
+
+function writeStore(store: DataStore) {
+  ensureDataStoreExists();
+  writeFileSync(STORE_PATH, JSON.stringify(store, null, 2), "utf-8");
+}
+
+function ensureServer(
+  store: DataStore,
+  serverId: string,
+  serverName: string
+): ServerRecord {
+  const existing = store.servers[serverId];
+  if (existing) {
+    return existing;
+  }
+
+  const created: ServerRecord = {
+    id: serverId,
+    name: serverName,
+    messages: [],
+    members: {},
+    updatedAt: new Date().toISOString()
+  };
+  store.servers[serverId] = created;
+  return created;
+}
+
+export function listServers(): ServerRecord[] {
+  const store = readStore();
+  return Object.values(store.servers);
+}
+
+export function getServer(serverId: string): ServerRecord | null {
+  const store = readStore();
+  return store.servers[serverId] ?? null;
+}
+
+export function upsertMember(serverId: string, member: Partial<MemberRecord> & { id: string; username: string }, serverName = "Discord Server") {
+  const store = readStore();
+  const server = ensureServer(store, serverId, serverName);
+
+  const existing = server.members[member.id];
+  const now = new Date().toISOString();
+
+  server.members[member.id] = {
+    id: member.id,
+    username: member.username,
+    joinedAt: existing?.joinedAt ?? member.joinedAt ?? now,
+    lastSeenAt: member.lastSeenAt ?? existing?.lastSeenAt ?? now,
+    messageCount: member.messageCount ?? existing?.messageCount ?? 0,
+    roles: member.roles ?? existing?.roles ?? ["member"]
+  };
+
+  server.updatedAt = now;
+  writeStore(store);
+  return server.members[member.id];
+}
+
+export function appendMessage(message: MessageRecord) {
+  const store = readStore();
+  const server = ensureServer(store, message.serverId, message.serverName);
+
+  const alreadyExists = server.messages.some((entry) => entry.id === message.id);
+  if (alreadyExists) {
+    return;
+  }
+
+  server.messages.push(message);
+
+  const existingMember = server.members[message.authorId];
+  server.members[message.authorId] = {
+    id: message.authorId,
+    username: message.authorUsername,
+    joinedAt: existingMember?.joinedAt ?? message.timestamp,
+    lastSeenAt: message.timestamp,
+    messageCount: (existingMember?.messageCount ?? 0) + 1,
+    roles: existingMember?.roles ?? ["member"]
+  };
+
+  if (server.messages.length > 120_000) {
+    server.messages = server.messages.slice(-120_000);
+  }
+
+  server.updatedAt = new Date().toISOString();
+  writeStore(store);
+}
+
+export function recordPurchase(purchase: PurchaseRecord) {
+  const store = readStore();
+  const existingIndex = store.purchases.findIndex(
+    (entry) => entry.orderId === purchase.orderId
+  );
+
+  if (existingIndex >= 0) {
+    store.purchases[existingIndex] = {
+      ...store.purchases[existingIndex],
+      ...purchase,
+      updatedAt: new Date().toISOString()
+    };
+  } else {
+    store.purchases.push({
+      ...purchase,
+      updatedAt: purchase.updatedAt ?? new Date().toISOString()
+    });
+  }
+
+  writeStore(store);
+}
+
+export function findPurchase(orderId: string, email: string) {
+  const store = readStore();
+  return (
+    store.purchases.find(
+      (entry) =>
+        entry.orderId === orderId &&
+        entry.email.toLowerCase() === email.toLowerCase() &&
+        entry.status === "paid"
+    ) ?? null
+  );
 }

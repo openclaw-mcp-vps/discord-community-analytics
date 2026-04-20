@@ -1,91 +1,139 @@
-import { differenceInCalendarDays, parseISO, subDays } from "date-fns";
-import type { ChurnRiskMember, MemberRecord, MessageRecord } from "@/lib/types";
+import { differenceInDays, parseISO, subDays } from "date-fns";
+import type {
+  ChurnPrediction,
+  MemberRecord,
+  MessageRecord,
+  RiskLevel
+} from "@/lib/types";
 
-export interface ChurnResult {
-  highRiskCount: number;
-  mediumRiskCount: number;
-  atRiskMembers: ChurnRiskMember[];
+interface MessageWindowStat {
+  recent: number;
+  previous: number;
+  lastActiveAt: string | null;
 }
 
-function getMemberMessages(memberId: string, messages: MessageRecord[]): MessageRecord[] {
-  return messages.filter((message) => message.memberId === memberId);
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
 }
 
-function classifyRisk(score: number): "low" | "medium" | "high" {
+function getRiskLevel(score: number): RiskLevel {
   if (score >= 70) {
     return "high";
   }
-
-  if (score >= 45) {
+  if (score >= 40) {
     return "medium";
   }
-
   return "low";
 }
 
-export function calculateChurnRisk(members: MemberRecord[], messages: MessageRecord[]): ChurnResult {
-  const now = new Date();
-  const last7Cutoff = subDays(now, 7);
-  const previous7Cutoff = subDays(now, 14);
+function buildWindowStats(messages: MessageRecord[]) {
+  const recentCutoff = subDays(new Date(), 30);
+  const previousCutoff = subDays(new Date(), 60);
 
-  const scoredMembers: ChurnRiskMember[] = members.map((member) => {
-    const memberMessages = getMemberMessages(member.id, messages);
+  const stats = new Map<string, MessageWindowStat>();
 
-    const latestMessageAt = memberMessages.length
-      ? memberMessages.reduce(
-          (latest, message) => (message.createdAt > latest ? message.createdAt : latest),
-          memberMessages[0]?.createdAt ?? member.lastActiveAt
-        )
-      : member.lastActiveAt;
+  for (const message of messages) {
+    const timestamp = parseISO(message.timestamp);
+    const entry = stats.get(message.authorId) ?? {
+      recent: 0,
+      previous: 0,
+      lastActiveAt: null
+    };
 
-    const daysInactive = differenceInCalendarDays(now, parseISO(latestMessageAt));
-    const messagesLast7 = memberMessages.filter((message) => parseISO(message.createdAt) >= last7Cutoff).length;
-    const messagesPrevious7 = memberMessages.filter((message) => {
-      const date = parseISO(message.createdAt);
-      return date >= previous7Cutoff && date < last7Cutoff;
-    }).length;
-
-    const inactivityScore = Math.min(60, daysInactive * 6);
-    const baseline = Math.max(messagesPrevious7, 1);
-    const declineRatio = Math.max(0, (messagesPrevious7 - messagesLast7) / baseline);
-    const declineScore = Math.round(declineRatio * 40);
-    const riskScore = Math.min(100, inactivityScore + declineScore);
-    const riskLevel = classifyRisk(riskScore);
-
-    let reason = "Healthy participation pattern";
-    if (riskLevel === "high") {
-      reason =
-        daysInactive > 7
-          ? `${daysInactive} days inactive with sustained drop in contribution.`
-          : "Steep activity drop over the last week compared to prior behavior.";
-    } else if (riskLevel === "medium") {
-      reason =
-        daysInactive > 4
-          ? `${daysInactive} days since last message and declining activity.`
-          : "Noticeable week-over-week activity decline.";
+    if (timestamp >= recentCutoff) {
+      entry.recent += 1;
+    } else if (timestamp >= previousCutoff) {
+      entry.previous += 1;
     }
+
+    if (!entry.lastActiveAt || message.timestamp > entry.lastActiveAt) {
+      entry.lastActiveAt = message.timestamp;
+    }
+
+    stats.set(message.authorId, entry);
+  }
+
+  return stats;
+}
+
+export function predictChurnRisk(
+  messages: MessageRecord[],
+  members: Record<string, MemberRecord>
+): ChurnPrediction[] {
+  const stats = buildWindowStats(messages);
+  const now = new Date();
+
+  const predictions = Object.values(members).map((member) => {
+    const memberStats = stats.get(member.id) ?? {
+      recent: 0,
+      previous: 0,
+      lastActiveAt: member.lastSeenAt
+    };
+
+    const lastActiveAt = memberStats.lastActiveAt
+      ? parseISO(memberStats.lastActiveAt)
+      : parseISO(member.lastSeenAt);
+    const daysInactive = clamp(differenceInDays(now, lastActiveAt), 0, 365);
+
+    const trendDelta =
+      memberStats.previous > 0
+        ? Math.round(
+            ((memberStats.recent - memberStats.previous) / memberStats.previous) *
+              100
+          )
+        : memberStats.recent > 0
+          ? 100
+          : 0;
+
+    const inactivityScore = clamp(daysInactive * 2.2, 0, 52);
+    const trendPenalty =
+      memberStats.previous > 0 && memberStats.recent < memberStats.previous
+        ? clamp(
+            ((memberStats.previous - memberStats.recent) /
+              Math.max(memberStats.previous, 1)) *
+              36,
+            0,
+            36
+          )
+        : 0;
+    const lowVolumePenalty = memberStats.recent <= 4 ? 12 : memberStats.recent <= 12 ? 6 : 0;
+
+    const joinedRecently = differenceInDays(now, parseISO(member.joinedAt)) < 14;
+    const newMemberDiscount = joinedRecently ? 12 : 0;
+
+    const riskScore = Math.round(
+      clamp(inactivityScore + trendPenalty + lowVolumePenalty - newMemberDiscount, 0, 100)
+    );
 
     return {
       memberId: member.id,
       username: member.username,
       riskScore,
-      riskLevel,
+      riskLevel: getRiskLevel(riskScore),
       daysInactive,
-      messagesLast7,
-      messagesPrevious7,
-      reason,
-      lastActiveAt: latestMessageAt
-    };
+      recentMessages: memberStats.recent,
+      previousMessages: memberStats.previous,
+      trendDelta
+    } satisfies ChurnPrediction;
   });
 
-  const atRiskMembers = scoredMembers
-    .filter((member) => member.riskLevel !== "low")
-    .sort((a, b) => b.riskScore - a.riskScore)
-    .slice(0, 25);
+  return predictions.sort((a, b) => b.riskScore - a.riskScore);
+}
 
+export function summarizeChurn(predictions: ChurnPrediction[]) {
+  const high = predictions.filter((entry) => entry.riskLevel === "high").length;
+  const medium = predictions.filter((entry) => entry.riskLevel === "medium").length;
+  const low = predictions.filter((entry) => entry.riskLevel === "low").length;
   return {
-    highRiskCount: atRiskMembers.filter((member) => member.riskLevel === "high").length,
-    mediumRiskCount: atRiskMembers.filter((member) => member.riskLevel === "medium").length,
-    atRiskMembers
+    high,
+    medium,
+    low,
+    averageScore:
+      predictions.length > 0
+        ? Math.round(
+            predictions.reduce((sum, entry) => sum + entry.riskScore, 0) /
+              predictions.length
+          )
+        : 0
   };
 }
