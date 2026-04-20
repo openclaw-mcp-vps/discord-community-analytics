@@ -1,47 +1,42 @@
-const { Client, Events, GatewayIntentBits, Partials } = require("discord.js");
-const { createMemberCollector } = require("./collectors/memberCollector");
-const { createMessageCollector } = require("./collectors/messageCollector");
+const {
+  Client,
+  GatewayIntentBits,
+  Partials,
+} = require("discord.js");
+const { initMessageCollector } = require("./collectors/messageCollector");
+const { initMemberCollector } = require("./collectors/memberCollector");
 
 const token = process.env.DISCORD_BOT_TOKEN;
-const webhookUrl = process.env.DISCORD_INGEST_URL;
+const analyticsWebhookUrl =
+  process.env.DCA_ANALYTICS_WEBHOOK_URL || "http://localhost:3000/api/webhook/discord";
+const ingestSecret = process.env.DISCORD_INGEST_SECRET || "";
 
 if (!token) {
   throw new Error("DISCORD_BOT_TOKEN is required.");
 }
 
-if (!webhookUrl) {
-  throw new Error("DISCORD_INGEST_URL is required.");
-}
-
-const allowedServerIds = new Set(
-  (process.env.DISCORD_SERVER_ALLOWLIST || "")
-    .split(",")
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-);
-
-const collectorConfig = {
-  webhookUrl,
-  webhookSecret: process.env.DISCORD_INGEST_SECRET,
-  allowedServerIds
-};
-
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.MessageContent,
   ],
-  partials: [Partials.Channel, Partials.GuildMember]
+  partials: [Partials.Channel],
 });
 
-client.once(Events.ClientReady, (readyClient) => {
-  console.log(`[discord-bot] Connected as ${readyClient.user.tag}`);
+client.once("ready", () => {
+  console.log(`[discord-bot] Logged in as ${client.user.tag}`);
 });
 
-client.on(Events.MessageCreate, createMessageCollector(collectorConfig));
-client.on(Events.GuildMemberAdd, createMemberCollector(collectorConfig, "member.joined"));
-client.on(Events.GuildMemberUpdate, (_, newMember) => createMemberCollector(collectorConfig, "member.updated")(newMember));
+initMessageCollector(client, {
+  webhookUrl: analyticsWebhookUrl,
+  ingestSecret,
+});
+
+initMemberCollector(client, {
+  webhookUrl: analyticsWebhookUrl,
+  ingestSecret,
+});
 
 client.login(token);

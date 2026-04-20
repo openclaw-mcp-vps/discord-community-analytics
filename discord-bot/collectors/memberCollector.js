@@ -1,58 +1,74 @@
-function buildMemberPayload(type, member) {
-  return {
-    type,
-    eventId: `${type}:${member.guild.id}:${member.id}:${Date.now()}`,
-    serverId: member.guild.id,
-    memberId: member.id,
-    username: member.displayName || member.user.username,
-    roles: member.roles.cache
-      .filter((role) => role.name !== "@everyone")
-      .map((role) => role.name),
-    avatarUrl: member.displayAvatarURL({ extension: "png", size: 128 }),
-    createdAt: new Date().toISOString()
-  };
-}
+function initMemberCollector(client, config) {
+  const queueByServer = new Map();
+  const FLUSH_INTERVAL_MS = 15_000;
 
-async function sendWebhook(webhookUrl, payload, secret) {
-  const headers = {
-    "Content-Type": "application/json"
-  };
-
-  if (secret) {
-    headers["x-discord-ingest-secret"] = secret;
+  function enqueue(serverId, event) {
+    const queue = queueByServer.get(serverId) || [];
+    queue.push(event);
+    queueByServer.set(serverId, queue);
   }
 
-  const response = await fetch(webhookUrl, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload)
+  async function flushServer(serverId) {
+    const queue = queueByServer.get(serverId);
+    if (!queue || queue.length === 0) {
+      return;
+    }
+
+    const batch = queue.splice(0, queue.length);
+
+    try {
+      const response = await fetch(config.webhookUrl, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-ingest-secret": config.ingestSecret,
+        },
+        body: JSON.stringify({
+          serverId,
+          messages: [],
+          members: batch,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Webhook returned ${response.status}`);
+      }
+    } catch (error) {
+      console.error(`[memberCollector] failed to flush for guild ${serverId}:`, error.message);
+      queue.unshift(...batch);
+      queueByServer.set(serverId, queue.slice(0, 500));
+    }
+  }
+
+  client.on("guildMemberAdd", (member) => {
+    enqueue(member.guild.id, {
+      id: `join-${member.id}-${Date.now()}`,
+      memberId: member.id,
+      memberName: member.displayName || member.user.username,
+      event: "join",
+      timestamp: new Date().toISOString(),
+    });
   });
 
-  if (!response.ok) {
-    const responseText = await response.text();
-    throw new Error(`Discord ingest webhook failed (${response.status}): ${responseText}`);
-  }
-}
+  client.on("guildMemberRemove", (member) => {
+    enqueue(member.guild.id, {
+      id: `leave-${member.id}-${Date.now()}`,
+      memberId: member.id,
+      memberName: member.displayName || member.user.username,
+      event: "leave",
+      timestamp: new Date().toISOString(),
+    });
+  });
 
-function createMemberCollector(config, type) {
-  return async (member) => {
-    try {
-      if (!member.guild) {
-        return;
-      }
-
-      if (config.allowedServerIds.size > 0 && !config.allowedServerIds.has(member.guild.id)) {
-        return;
-      }
-
-      const payload = buildMemberPayload(type, member);
-      await sendWebhook(config.webhookUrl, payload, config.webhookSecret);
-    } catch (error) {
-      console.error("[collector:member]", error);
+  setInterval(() => {
+    for (const serverId of queueByServer.keys()) {
+      flushServer(serverId).catch((error) => {
+        console.error(`[memberCollector] periodic flush failed for ${serverId}:`, error.message);
+      });
     }
-  };
+  }, FLUSH_INTERVAL_MS);
 }
 
 module.exports = {
-  createMemberCollector
+  initMemberCollector,
 };
