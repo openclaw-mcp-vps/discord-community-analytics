@@ -1,142 +1,155 @@
 import Link from "next/link";
 
-import { LemonCheckoutCard } from "@/components/LemonCheckoutCard";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-export default function HomePage() {
+const problemPoints = [
+  "Raw message counts miss quality and momentum shifts.",
+  "Silent churn starts weeks before members leave.",
+  "Moderators spend time reacting instead of preventing disengagement."
+];
+
+const solutionPoints = [
+  {
+    title: "Top contributor intelligence",
+    copy: "Identify members driving useful discussion so you can reward and retain them."
+  },
+  {
+    title: "Engagement trend timelines",
+    copy: "Track posting volume and active-member patterns daily to detect slowdowns early."
+  },
+  {
+    title: "Churn risk scoring",
+    copy: "Surface at-risk members by inactivity + engagement drop so your team can intervene."
+  },
+  {
+    title: "Topic heat maps",
+    copy: "Understand what members care about now with a live word cloud across recent messages."
+  }
+];
+
+const faqs = [
+  {
+    q: "How quickly does data show up after bot installation?",
+    a: "Message events stream to your dashboard in near-real time, while member snapshots refresh hourly by default."
+  },
+  {
+    q: "Does this replace moderation bots?",
+    a: "No. This complements moderation tools by adding retention and engagement health insights."
+  },
+  {
+    q: "Can I use this on multiple servers?",
+    a: "Yes. Billing is per server, so each community gets isolated analytics and access control."
+  },
+  {
+    q: "What server size is this built for?",
+    a: "Best fit is active communities between 500 and 5,000 members where churn blind spots are costly."
+  }
+];
+
+export default function LandingPage() {
   return (
-    <main className="section-grid min-h-screen px-4 py-8 sm:px-8 lg:px-12">
-      <div className="mx-auto max-w-6xl space-y-16">
-        <section className="fade-up grid gap-8 rounded-2xl border border-[#30363d] bg-[#0d1117]/85 p-8 md:grid-cols-[1.2fr_0.8fr]">
-          <div className="space-y-5">
-            <Badge variant="default" className="w-fit">
-              Discord Community Analytics
-            </Badge>
-            <h1 className="text-4xl font-extrabold tracking-tight text-[#f0f6fc] sm:text-5xl">
-              Know which members drive engagement and predict churn before they disappear.
-            </h1>
-            <p className="max-w-2xl text-base leading-7 text-[#8b949e] sm:text-lg">
-              Most Discord dashboards stop at message counts. This platform tracks contributor momentum, topic gravity,
-              and early churn signals so community managers can intervene while members are still reachable.
+    <main className="mx-auto max-w-6xl px-4 py-10 sm:px-6 lg:px-8">
+      <header className="animate-rise rounded-2xl border border-slate-800 bg-slate-950/70 p-8 backdrop-blur sm:p-12">
+        <p className="mb-4 inline-flex rounded-full border border-sky-900 bg-sky-950/60 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-sky-300">
+          Community Analytics for Discord
+        </p>
+        <h1 className="max-w-3xl text-4xl font-bold leading-tight text-slate-100 sm:text-5xl">
+          Discord Community Analytics, built to protect engagement before churn starts.
+        </h1>
+        <p className="mt-5 max-w-2xl text-lg text-slate-300">
+          Add one bot and get a health dashboard that shows who drives conversation, where momentum is
+          fading, and which members are likely to disengage next.
+        </p>
+        <div className="mt-8 flex flex-wrap gap-3">
+          <a href={process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK}>
+            <Button size="lg">Start for $19/server/month</Button>
+          </a>
+          <Link href="/purchase/activate">
+            <Button size="lg" variant="outline">
+              I already purchased
+            </Button>
+          </Link>
+          <Link href="/dashboard">
+            <Button size="lg" variant="ghost">
+              View Dashboard
+            </Button>
+          </Link>
+        </div>
+      </header>
+
+      <section className="animate-rise-delay-1 mt-12 grid gap-6 lg:grid-cols-3">
+        {problemPoints.map((point) => (
+          <Card key={point} className="border-rose-900/50 bg-rose-950/20">
+            <CardHeader>
+              <CardTitle className="text-lg text-rose-200">Problem</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-slate-300">{point}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </section>
+
+      <section className="animate-rise-delay-2 mt-14">
+        <h2 className="mb-6 text-2xl font-semibold text-slate-100">What You Get</h2>
+        <div className="grid gap-6 md:grid-cols-2">
+          {solutionPoints.map((item) => (
+            <Card key={item.title}>
+              <CardHeader>
+                <CardTitle className="text-lg">{item.title}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-slate-300">{item.copy}</p>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </section>
+
+      <section className="mt-14 grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+        <Card className="border-sky-900/40 bg-sky-950/20">
+          <CardHeader>
+            <CardTitle className="text-xl">Pricing</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-4xl font-bold text-slate-100">$19<span className="text-lg text-slate-400">/server/mo</span></p>
+            <p className="text-slate-300">
+              Built for community managers who need weekly retention visibility without enterprise analytics overhead.
             </p>
-            <div className="flex flex-wrap gap-3">
-              <Button asChild size="lg">
-                <Link href="#pricing">Get Access</Link>
-              </Button>
-              <Button asChild size="lg" variant="secondary">
-                <Link href="/dashboard">Open Dashboard</Link>
-              </Button>
-            </div>
-          </div>
-          <div className="fade-up-delay rounded-2xl border border-[#30363d] bg-[#161b22] p-5">
-            <p className="mb-4 text-sm font-semibold uppercase tracking-wide text-[#79c0ff]">What you can spot fast</p>
-            <ul className="space-y-3 text-sm text-[#c9d1d9]">
-              <li>Contributor drop-offs after launches and community events</li>
-              <li>Channels where messages grow but unique participation shrinks</li>
-              <li>Members showing sudden weekly activity decline and risk of churn</li>
-              <li>Emerging topics that attract repeat participation</li>
-            </ul>
-          </div>
-        </section>
+            <a href={process.env.NEXT_PUBLIC_STRIPE_PAYMENT_LINK}>
+              <Button className="w-full">Buy With Stripe Checkout</Button>
+            </a>
+          </CardContent>
+        </Card>
 
-        <section className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardHeader>
-              <CardTitle>The Problem</CardTitle>
-              <CardDescription>Admins are flying blind on community health.</CardDescription>
-            </CardHeader>
-            <CardContent className="text-sm text-[#8b949e]">
-              Raw counts hide the real question: who sustains conversations and who is quietly disengaging.
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>The Solution</CardTitle>
-              <CardDescription>Retention-first analytics with behavior modeling.</CardDescription>
-            </CardHeader>
-            <CardContent className="text-sm text-[#8b949e]">
-              Message trends, contributor quality, topic clusters, and churn prediction in one dashboard.
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <CardTitle>Who Pays</CardTitle>
-              <CardDescription>Community managers of mid-size Discord servers.</CardDescription>
-            </CardHeader>
-            <CardContent className="text-sm text-[#8b949e]">
-              Teams managing 500-5000 members who need operational signals to protect engagement and paid retention.
-            </CardContent>
-          </Card>
-        </section>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-xl">After Purchase</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3 text-slate-300">
+            <p>1. Complete Stripe hosted checkout.</p>
+            <p>2. Install the Discord bot in your server.</p>
+            <p>3. Activate dashboard access with your billing email.</p>
+          </CardContent>
+        </Card>
+      </section>
 
-        <section id="pricing" className="grid gap-6 md:grid-cols-[1fr_0.9fr]">
-          <div className="space-y-4">
-            <h2 className="text-3xl font-bold text-[#f0f6fc]">Pricing built for one clear outcome: healthier communities.</h2>
-            <p className="text-[#8b949e]">
-              One server license includes the Discord bot, analytics dashboard, and churn model updates. No seat-based pricing.
-            </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Included</CardTitle>
-                </CardHeader>
-                <CardContent className="text-sm text-[#8b949e]">
-                  Contributor rankings, trend charts, churn risk scoring, topic word cloud, and webhook ingestion API.
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Best Fit</CardTitle>
-                </CardHeader>
-                <CardContent className="text-sm text-[#8b949e]">
-                  Paid communities, product support hubs, creator membership servers, and learning cohorts.
-                </CardContent>
-              </Card>
-            </div>
-          </div>
-          <LemonCheckoutCard />
-        </section>
-
-        <section className="space-y-5 pb-12">
-          <h2 className="text-2xl font-bold text-[#f0f6fc]">FAQ</h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card>
+      <section className="mt-14">
+        <h2 className="mb-6 text-2xl font-semibold text-slate-100">FAQ</h2>
+        <div className="grid gap-4">
+          {faqs.map((item) => (
+            <Card key={item.q}>
               <CardHeader>
-                <CardTitle className="text-base">How does churn prediction work?</CardTitle>
+                <CardTitle className="text-base">{item.q}</CardTitle>
               </CardHeader>
-              <CardContent className="text-sm text-[#8b949e]">
-                We score each member by recency of activity, week-over-week message decline, and consistency across active days.
+              <CardContent>
+                <p className="text-slate-300">{item.a}</p>
               </CardContent>
             </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Do I need to export Discord data manually?</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-[#8b949e]">
-                No. The bot streams activity to your dashboard via secure webhook calls.
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">Is this only for large servers?</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-[#8b949e]">
-                It is optimized for 500-5000 member communities where retention signals become hard to track manually.
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">When is access granted?</CardTitle>
-              </CardHeader>
-              <CardContent className="text-sm text-[#8b949e]">
-                As soon as your Lemon Squeezy payment webhook is received, you can activate access from the checkout success page.
-              </CardContent>
-            </Card>
-          </div>
-        </section>
-      </div>
+          ))}
+        </div>
+      </section>
     </main>
   );
 }

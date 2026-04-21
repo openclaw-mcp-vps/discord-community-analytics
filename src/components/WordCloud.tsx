@@ -1,42 +1,37 @@
-"use client";
-
-import dynamic from "next/dynamic";
-
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import type { WordCloudItem } from "@/lib/types";
-
-const ReactWordcloud = dynamic(() => import("react-wordcloud"), { ssr: false });
+import type { WordCloudToken } from "@/lib/types";
 
 interface WordCloudProps {
-  words: WordCloudItem[];
+  words: WordCloudToken[];
 }
 
 export function WordCloud({ words }: WordCloudProps) {
+  const max = Math.max(...words.map((word) => word.value), 1);
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Hot Topics</CardTitle>
-        <CardDescription>Terms with sustained repetition across recent discussions.</CardDescription>
-      </CardHeader>
-      <CardContent className="h-72">
-        {words.length > 0 ? (
-          <ReactWordcloud
-            words={words}
-            options={{
-              colors: ["#2f81f7", "#79c0ff", "#3fb950", "#e3b341", "#ff7b72"],
-              deterministic: true,
-              fontFamily: "var(--font-space-grotesk)",
-              fontSizes: [14, 48],
-              rotations: 2,
-              rotationAngles: [0, 90],
-            }}
-          />
-        ) : (
-          <p className="rounded-lg border border-dashed border-[#30363d] p-4 text-sm text-[#8b949e]">
-            No repeated topic terms yet. Once message flow starts, this cloud highlights what your community keeps discussing.
-          </p>
-        )}
-      </CardContent>
-    </Card>
+    <div className="flex min-h-[320px] flex-wrap items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/40 p-4">
+      {words.map((word, idx) => {
+        const size = 12 + Math.round((word.value / max) * 34);
+        const rotate = idx % 5 === 0 ? "-rotate-6" : idx % 7 === 0 ? "rotate-6" : "";
+        const color =
+          idx % 4 === 0
+            ? "text-sky-300"
+            : idx % 4 === 1
+              ? "text-amber-300"
+              : idx % 4 === 2
+                ? "text-emerald-300"
+                : "text-cyan-300";
+
+        return (
+          <span
+            key={word.text}
+            className={`${rotate} ${color} inline-block font-semibold transition-transform hover:scale-110`}
+            style={{ fontSize: `${size}px` }}
+            title={`${word.text}: ${word.value} mentions`}
+          >
+            {word.text}
+          </span>
+        );
+      })}
+    </div>
   );
 }

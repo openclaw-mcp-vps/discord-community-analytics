@@ -1,104 +1,129 @@
-import { Activity, AlertTriangle, MessageSquare, Users } from "lucide-react";
 import { cookies } from "next/headers";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { buildServerAnalytics } from "@/lib/analytics";
-import { getAccessCookieName, verifyAccessToken } from "@/lib/paywall";
-import { ChurnPrediction } from "@/components/ChurnPrediction";
+import { ChurnRiskTable } from "@/components/ChurnRiskTable";
 import { EngagementChart } from "@/components/EngagementChart";
 import { TopContributors } from "@/components/TopContributors";
 import { WordCloud } from "@/components/WordCloud";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getAnalyticsSnapshot, seedDemoDataIfEmpty } from "@/lib/analytics";
+import { getAccessCookieName, verifyAccessToken } from "@/lib/paywall";
 
 export const dynamic = "force-dynamic";
 
-type DashboardPageProps = {
-  searchParams: Promise<{ days?: string }>;
-};
-
-export default async function DashboardPage({ searchParams }: DashboardPageProps) {
+export default async function DashboardPage() {
   const cookieStore = await cookies();
-  const token = cookieStore.get(getAccessCookieName())?.value;
-  const access = verifyAccessToken(token);
+  const accessToken = cookieStore.get(getAccessCookieName())?.value;
+  const access = verifyAccessToken(accessToken);
 
   if (!access) {
-    redirect("/");
+    redirect("/purchase/activate?next=/dashboard");
   }
 
-  const params = await searchParams;
-  const daysInput = Number(params.days ?? 30);
-  const days = Number.isFinite(daysInput) ? Math.min(Math.max(daysInput, 7), 90) : 30;
-
-  const analytics = await buildServerAnalytics(access.serverId, days);
+  seedDemoDataIfEmpty();
+  const snapshot = getAnalyticsSnapshot();
 
   return (
-    <main className="min-h-screen bg-[#0d1117] px-4 py-8 sm:px-8 lg:px-12">
-      <div className="mx-auto max-w-6xl space-y-6">
-        <header className="rounded-2xl border border-[#30363d] bg-[#161b22] p-6">
-          <p className="text-sm uppercase tracking-widest text-[#79c0ff]">Engagement Intelligence</p>
-          <h1 className="mt-2 text-3xl font-bold text-[#f0f6fc]">Server {analytics.serverId}</h1>
-          <p className="mt-2 text-sm text-[#8b949e]">
-            Window: last {analytics.windowDays} days. Generated {new Date(analytics.generatedAt).toLocaleString()}.
+    <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-100">Discord Community Analytics</h1>
+          <p className="text-slate-400">
+            Generated {new Date(snapshot.generatedAt).toLocaleString()} · 30-day intelligence window
           </p>
-        </header>
+        </div>
+        <div className="flex gap-2">
+          <Link href="/">
+            <Button variant="ghost">Home</Button>
+          </Link>
+          <Link href="/api/analytics">
+            <Button variant="outline">Export JSON</Button>
+          </Link>
+        </div>
+      </header>
 
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm text-[#8b949e]">
-                <MessageSquare className="h-4 w-4 text-[#79c0ff]" />
-                Total Messages
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-[#f0f6fc]">{analytics.summary.totalMessages}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm text-[#8b949e]">
-                <Users className="h-4 w-4 text-[#3fb950]" />
-                Active Members
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-[#f0f6fc]">{analytics.summary.activeMembers}</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm text-[#8b949e]">
-                <Activity className="h-4 w-4 text-[#e3b341]" />
-                Growth vs Prior Window
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-[#f0f6fc]">{analytics.summary.messageGrowthVsPreviousWindow}%</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2 text-sm text-[#8b949e]">
-                <AlertTriangle className="h-4 w-4 text-[#ff7b72]" />
-                At-Risk Members
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-[#f0f6fc]">{analytics.summary.atRiskMemberCount}</p>
-            </CardContent>
-          </Card>
-        </section>
+      <section className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm text-slate-400">Messages (30d)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold text-slate-100">{snapshot.totalMessages}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm text-slate-400">Active Members</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold text-slate-100">{snapshot.activeMembers}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm text-slate-400">At-Risk Members</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold text-amber-300">
+              {snapshot.churnRisk.filter((row) => row.riskBand !== "low").length}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm text-slate-400">Top Contributor Score</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold text-emerald-300">
+              {snapshot.topContributors[0]?.engagementScore ?? 0}
+            </p>
+          </CardContent>
+        </Card>
+      </section>
 
-        <section className="grid gap-4 lg:grid-cols-[1.4fr_0.8fr]">
-          <EngagementChart data={analytics.engagementTrend} />
-          <TopContributors contributors={analytics.topContributors} />
-        </section>
+      <section className="mb-6 grid gap-6 lg:grid-cols-[1.3fr_1fr]">
+        <Card>
+          <CardHeader>
+            <CardTitle>Engagement Frequency Trends</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <EngagementChart data={snapshot.engagementTrend} />
+          </CardContent>
+        </Card>
 
-        <section className="grid gap-4 lg:grid-cols-2">
-          <ChurnPrediction rows={analytics.churnPredictions} />
-          <WordCloud words={analytics.hotTopics} />
-        </section>
-      </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Hot Topic Word Cloud (14d)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <WordCloud words={snapshot.topicCloud} />
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="mb-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Top Contributors</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TopContributors contributors={snapshot.topContributors} />
+          </CardContent>
+        </Card>
+      </section>
+
+      <section>
+        <Card>
+          <CardHeader>
+            <CardTitle>Members At Risk of Churn</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ChurnRiskTable rows={snapshot.churnRisk} />
+          </CardContent>
+        </Card>
+      </section>
     </main>
   );
 }

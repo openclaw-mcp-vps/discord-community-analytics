@@ -1,54 +1,56 @@
-import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
+import { NextResponse } from "next/server";
 
-import { createAccessToken, getAccessCookieMaxAgeSeconds, getAccessCookieName } from "@/lib/paywall";
-import { readPurchases } from "@/lib/storage";
+import { getPurchaseEntitlement } from "@/lib/db";
+import {
+  getAccessCookieName,
+  getAccessTokenMaxAgeSeconds,
+  signAccessToken
+} from "@/lib/paywall";
 
-const activateSchema = z.object({
-  orderId: z.string().optional(),
-  email: z.string().email().optional(),
-  serverId: z.string().min(1).optional(),
-});
+export const runtime = "nodejs";
 
-export async function POST(request: NextRequest) {
-  const parsed = activateSchema.safeParse(await request.json());
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+interface ActivateBody {
+  email?: string;
+}
+
+export async function POST(request: Request) {
+  let body: ActivateBody;
+
+  try {
+    body = (await request.json()) as ActivateBody;
+  } catch {
+    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const { orderId, email, serverId } = parsed.data;
-  if (!orderId && !email) {
-    return NextResponse.json({ error: "Provide either orderId or email" }, { status: 400 });
+  const email = body.email?.trim().toLowerCase();
+
+  if (!email || !/^\S+@\S+\.\S+$/.test(email)) {
+    return NextResponse.json({ error: "A valid billing email is required." }, { status: 400 });
   }
 
-  const purchases = await readPurchases();
-  const match = purchases.find((purchase) => {
-    const paidStatus = purchase.status === "paid";
-    const orderMatch = orderId ? purchase.orderId === orderId : true;
-    const emailMatch = email ? purchase.email === email.toLowerCase() : true;
-    const serverMatch = serverId ? purchase.serverId === serverId : true;
-    return paidStatus && orderMatch && emailMatch && serverMatch;
-  });
+  const entitlement = getPurchaseEntitlement(email);
 
-  if (!match) {
+  if (!entitlement || entitlement.status !== "active") {
     return NextResponse.json(
       {
         error:
-          "No paid order found yet. Confirm your webhook is configured and try again in a few seconds.",
+          "No active purchase found for this email yet. Complete checkout, then wait for webhook confirmation."
       },
-      { status: 404 }
+      { status: 403 }
     );
   }
 
-  const token = createAccessToken(match.orderId, match.email, match.serverId);
+  const token = signAccessToken(email);
+  const response = NextResponse.json({ ok: true, email });
 
-  const response = NextResponse.json({ ok: true, serverId: match.serverId });
-  response.cookies.set(getAccessCookieName(), token, {
+  response.cookies.set({
+    name: getAccessCookieName(),
+    value: token,
     httpOnly: true,
-    sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
-    maxAge: getAccessCookieMaxAgeSeconds(),
-    path: "/",
+    sameSite: "lax",
+    maxAge: getAccessTokenMaxAgeSeconds(),
+    path: "/"
   });
 
   return response;

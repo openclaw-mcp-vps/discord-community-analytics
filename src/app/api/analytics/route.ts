@@ -1,22 +1,25 @@
-import { NextRequest, NextResponse } from "next/server";
+import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 
-import { buildServerAnalytics } from "@/lib/analytics";
+import { getAnalyticsSnapshot } from "@/lib/analytics";
 import { getAccessCookieName, verifyAccessToken } from "@/lib/paywall";
 
-export async function GET(request: NextRequest) {
-  const token = request.cookies.get(getAccessCookieName())?.value;
-  const access = verifyAccessToken(token);
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export async function GET(request: Request) {
+  const cookieStore = await cookies();
+  const accessToken = cookieStore.get(getAccessCookieName())?.value;
+  const access = verifyAccessToken(accessToken);
 
   if (!access) {
-    return NextResponse.json({ error: "Access denied" }, { status: 403 });
+    return NextResponse.json({ error: "Payment required." }, { status: 403 });
   }
 
-  const url = new URL(request.url);
-  const daysRaw = url.searchParams.get("days");
-  const days = daysRaw ? Number(daysRaw) : 30;
-  const safeDays = Number.isFinite(days) ? Math.min(Math.max(days, 7), 90) : 30;
+  const { searchParams } = new URL(request.url);
+  const serverId = searchParams.get("serverId") ?? undefined;
 
-  const analytics = await buildServerAnalytics(access.serverId, safeDays);
+  const snapshot = getAnalyticsSnapshot(serverId);
 
-  return NextResponse.json(analytics);
+  return NextResponse.json(snapshot);
 }

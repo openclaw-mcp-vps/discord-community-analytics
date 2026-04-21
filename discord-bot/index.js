@@ -1,64 +1,106 @@
-import {
+const {
   Client,
   Events,
   GatewayIntentBits,
   Partials
-} from "discord.js";
-import { collectMessage } from "./collectors/messageCollector.js";
-import {
-  collectMemberJoin,
-  collectMemberUpdate
-} from "./collectors/memberCollector.js";
+} = require("discord.js");
 
-const required = ["DISCORD_BOT_TOKEN", "ANALYTICS_WEBHOOK_URL", "DISCORD_WEBHOOK_SECRET"];
-const missing = required.filter((name) => !process.env[name]);
+const { createMessageCollector } = require("./collectors/messageCollector");
+const { collectMemberSnapshot } = require("./collectors/memberCollector");
 
-if (missing.length > 0) {
-  console.error(`Missing required environment variables: ${missing.join(", ")}`);
-  process.exit(1);
+const {
+  DISCORD_BOT_TOKEN,
+  DISCORD_GUILD_ID,
+  ANALYTICS_WEBHOOK_URL,
+  ANALYTICS_WEBHOOK_SECRET,
+  MEMBER_SNAPSHOT_INTERVAL_MS
+} = process.env;
+
+if (!DISCORD_BOT_TOKEN) {
+  throw new Error("Missing DISCORD_BOT_TOKEN");
 }
 
-const config = {
-  webhookUrl: process.env.ANALYTICS_WEBHOOK_URL,
-  webhookSecret: process.env.DISCORD_WEBHOOK_SECRET
-};
+if (!ANALYTICS_WEBHOOK_URL) {
+  throw new Error("Missing ANALYTICS_WEBHOOK_URL");
+}
 
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.MessageContent
   ],
   partials: [Partials.Channel]
 });
 
-client.once(Events.ClientReady, (readyClient) => {
-  console.log(`Discord analytics bot online as ${readyClient.user.tag}`);
+const messageCollector = createMessageCollector({
+  webhookUrl: ANALYTICS_WEBHOOK_URL,
+  webhookSecret: ANALYTICS_WEBHOOK_SECRET
 });
 
-client.on(Events.MessageCreate, async (message) => {
+let memberSnapshotTimer = null;
+
+client.once(Events.ClientReady, async (readyClient) => {
+  console.log(`Discord analytics bot ready as ${readyClient.user.tag}`);
+
+  const guildId = DISCORD_GUILD_ID || readyClient.guilds.cache.first()?.id;
+
+  if (!guildId) {
+    console.error("No guild found. Set DISCORD_GUILD_ID explicitly.");
+    return;
+  }
+
   try {
-    await collectMessage(message, config);
+    const guild = await readyClient.guilds.fetch(guildId);
+
+    const runMemberSnapshot = async () => {
+      try {
+        const count = await collectMemberSnapshot({
+          guild,
+          webhookUrl: ANALYTICS_WEBHOOK_URL,
+          webhookSecret: ANALYTICS_WEBHOOK_SECRET
+        });
+        console.log(`Member snapshot synced: ${count} members`);
+      } catch (error) {
+        console.error("Member snapshot failed", error);
+      }
+    };
+
+    await runMemberSnapshot();
+
+    const interval = Number(MEMBER_SNAPSHOT_INTERVAL_MS || 60 * 60 * 1000);
+
+    memberSnapshotTimer = setInterval(() => {
+      void runMemberSnapshot();
+    }, interval);
   } catch (error) {
-    console.error("Failed to send message event", error.message);
+    console.error("Failed to initialize guild data", error);
   }
 });
 
-client.on(Events.GuildMemberAdd, async (member) => {
-  try {
-    await collectMemberJoin(member, config);
-  } catch (error) {
-    console.error("Failed to send member join event", error.message);
-  }
+client.on(Events.MessageCreate, (message) => {
+  messageCollector.handleMessage(message);
 });
 
-client.on(Events.GuildMemberUpdate, async (_oldMember, newMember) => {
-  try {
-    await collectMemberUpdate(newMember, config);
-  } catch (error) {
-    console.error("Failed to send member update event", error.message);
+async function shutdown() {
+  console.log("Shutting down Discord analytics bot...");
+
+  if (memberSnapshotTimer) {
+    clearInterval(memberSnapshotTimer);
   }
+
+  await messageCollector.stop();
+  client.destroy();
+  process.exit(0);
+}
+
+process.on("SIGINT", () => {
+  void shutdown();
 });
 
-client.login(process.env.DISCORD_BOT_TOKEN);
+process.on("SIGTERM", () => {
+  void shutdown();
+});
+
+client.login(DISCORD_BOT_TOKEN);

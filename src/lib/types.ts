@@ -1,81 +1,92 @@
-export type DiscordEventType = "message" | "member";
-
-export interface DiscordMessageEvent {
-  id: string;
+export interface RawMessage {
+  messageId: string;
   serverId: string;
   channelId: string;
-  authorId: string;
-  authorName: string;
+  memberId: string;
+  username: string;
   content: string;
-  timestamp: string;
-}
-
-export interface DiscordMemberEvent {
-  id: string;
-  serverId: string;
-  memberId: string;
-  memberName: string;
-  event: "join" | "leave" | "presence";
-  timestamp: string;
-}
-
-export interface DiscordEventStore {
-  messages: DiscordMessageEvent[];
-  members: DiscordMemberEvent[];
-}
-
-export interface PurchaseRecord {
-  orderId: string;
-  email: string;
-  serverId: string;
-  status: "paid" | "refunded" | "cancelled";
+  wordCount: number;
   createdAt: string;
-  rawEventName: string;
 }
 
-export interface ContributorSummary {
+export interface RawMemberSnapshot {
+  serverId: string;
   memberId: string;
-  memberName: string;
-  messages: number;
-  words: number;
-  lastActiveAt: string;
+  username: string;
+  joinedAt: string | null;
+  roles: string[];
+  collectedAt: string;
 }
 
-export interface TrendPoint {
+export interface DailyEngagementPoint {
   date: string;
   messages: number;
   activeMembers: number;
 }
 
-export interface ChurnPredictionRow {
+export interface ContributorInsight {
   memberId: string;
-  memberName: string;
-  riskScore: number;
-  riskLevel: "low" | "medium" | "high";
-  daysSinceLastMessage: number;
-  recentMessages: number;
-  previousPeriodMessages: number;
-  reasons: string[];
+  username: string;
+  messageCount: number;
+  wordCount: number;
+  averageWordsPerMessage: number;
+  lastMessageAt: string | null;
+  engagementScore: number;
 }
 
-export interface WordCloudItem {
+export type RiskBand = "low" | "medium" | "high";
+
+export interface ChurnRiskRow {
+  memberId: string;
+  username: string;
+  daysInactive: number;
+  recentMessages: number;
+  previousMessages: number;
+  totalMessages30d: number;
+  riskScore: number;
+  riskBand: RiskBand;
+  rationale: string;
+}
+
+export interface WordCloudToken {
   text: string;
   value: number;
 }
 
-export interface AnalyticsResponse {
-  serverId: string;
-  windowDays: number;
-  summary: {
-    totalMessages: number;
-    activeMembers: number;
-    avgMessagesPerActiveMember: number;
-    messageGrowthVsPreviousWindow: number;
-    atRiskMemberCount: number;
-  };
-  topContributors: ContributorSummary[];
-  engagementTrend: TrendPoint[];
-  churnPredictions: ChurnPredictionRow[];
-  hotTopics: WordCloudItem[];
+export interface AnalyticsSnapshot {
   generatedAt: string;
+  windowDays: number;
+  totalMessages: number;
+  activeMembers: number;
+  topContributors: ContributorInsight[];
+  engagementTrend: DailyEngagementPoint[];
+  churnRisk: ChurnRiskRow[];
+  topicCloud: WordCloudToken[];
 }
+
+export interface DiscordMessageWebhook {
+  eventType: "message_batch";
+  serverId: string;
+  messages: Array<{
+    messageId: string;
+    channelId: string;
+    memberId: string;
+    username: string;
+    content: string;
+    createdAt: string;
+  }>;
+}
+
+export interface DiscordMemberWebhook {
+  eventType: "member_snapshot";
+  serverId: string;
+  members: Array<{
+    memberId: string;
+    username: string;
+    joinedAt: string | null;
+    roles: string[];
+  }>;
+  collectedAt?: string;
+}
+
+export type DiscordWebhookPayload = DiscordMessageWebhook | DiscordMemberWebhook;

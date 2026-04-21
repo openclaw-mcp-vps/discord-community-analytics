@@ -1,98 +1,83 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { type FormEvent, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
 interface ActivateAccessFormProps {
-  defaultServerId: string;
-  defaultOrderId: string;
+  nextPath: string;
 }
 
-export function ActivateAccessForm({ defaultServerId, defaultOrderId }: ActivateAccessFormProps) {
+export function ActivateAccessForm({ nextPath }: ActivateAccessFormProps) {
   const router = useRouter();
-
   const [email, setEmail] = useState("");
-  const [orderId, setOrderId] = useState(defaultOrderId);
-  const [serverId, setServerId] = useState(defaultServerId);
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const canSubmit = useMemo(() => !!orderId || !!email, [orderId, email]);
-
-  const activate = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setLoading(true);
-    setMessage(null);
-    setError(null);
-
-    const response = await fetch("/api/paywall/activate", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        orderId: orderId || undefined,
-        email: email || undefined,
-        serverId: serverId || undefined,
-      }),
-    });
-
-    const payload = (await response.json()) as { error?: string };
-
-    if (!response.ok) {
-      setError(payload.error ?? "Activation failed. Check your details and try again.");
-      setLoading(false);
-      return;
+  const buttonLabel = useMemo(() => {
+    if (isSubmitting) {
+      return "Verifying purchase...";
     }
 
-    setMessage("Access granted. Redirecting to dashboard...");
-    router.push("/dashboard");
-    router.refresh();
+    return "Activate Dashboard Access";
+  }, [isSubmitting]);
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    setIsSubmitting(true);
+    setError("");
+
+    try {
+      const response = await fetch("/api/paywall/activate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ email })
+      });
+
+      const data = (await response.json()) as { error?: string };
+
+      if (!response.ok) {
+        setError(data.error ?? "Could not verify your purchase yet.");
+        return;
+      }
+
+      router.push(nextPath || "/dashboard");
+      router.refresh();
+    } catch {
+      setError("Network error while verifying payment. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
-    <Card className="w-full max-w-lg">
-      <CardHeader>
-        <CardTitle>Checkout Complete</CardTitle>
-        <CardDescription>
-          Activate your dashboard access using the billing email or order ID from Lemon Squeezy.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <form onSubmit={activate} className="space-y-4">
-          <Input
-            value={serverId}
-            onChange={(e) => setServerId(e.target.value)}
-            placeholder="Discord server ID"
-            aria-label="Discord server ID"
-          />
-          <Input
-            value={orderId}
-            onChange={(e) => setOrderId(e.target.value)}
-            placeholder="Order ID (recommended)"
-            aria-label="Order ID"
-          />
-          <Input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="Billing email"
-            aria-label="Billing email"
-            type="email"
-          />
+    <form className="space-y-4" onSubmit={handleSubmit}>
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-slate-300" htmlFor="billing-email">
+          Billing email used at checkout
+        </label>
+        <Input
+          id="billing-email"
+          type="email"
+          inputMode="email"
+          autoComplete="email"
+          required
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="you@company.com"
+        />
+      </div>
 
-          {error ? <p className="text-sm text-[#ff7b72]">{error}</p> : null}
-          {message ? <p className="text-sm text-[#7ee787]">{message}</p> : null}
+      {error ? <p className="text-sm text-rose-300">{error}</p> : null}
 
-          <Button type="submit" className="w-full" disabled={!canSubmit || loading}>
-            {loading ? "Activating..." : "Activate Dashboard Access"}
-          </Button>
-        </form>
-      </CardContent>
-    </Card>
+      <Button className="w-full" type="submit" disabled={isSubmitting}>
+        {buttonLabel}
+      </Button>
+    </form>
   );
 }

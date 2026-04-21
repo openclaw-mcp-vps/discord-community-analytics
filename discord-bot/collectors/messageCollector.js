@@ -1,37 +1,97 @@
-import axios from "axios";
+const DEFAULT_BATCH_SIZE = 40;
+const DEFAULT_FLUSH_INTERVAL_MS = 15_000;
 
-function normalizeContent(content) {
-  if (!content || typeof content !== "string") {
-    return "";
+function createMessageCollector({
+  webhookUrl,
+  webhookSecret,
+  batchSize = DEFAULT_BATCH_SIZE,
+  flushIntervalMs = DEFAULT_FLUSH_INTERVAL_MS
+}) {
+  if (!webhookUrl) {
+    throw new Error("Missing ANALYTICS_WEBHOOK_URL for message collector");
   }
-  return content.replace(/\s+/g, " ").trim().slice(0, 2000);
-}
 
-export async function collectMessage(message, config) {
-  if (!message.guild || message.author.bot) {
-    return;
-  }
+  let queue = [];
 
-  const payload = {
-    type: "message.created",
-    data: {
-      id: message.id,
-      serverId: message.guild.id,
-      serverName: message.guild.name,
-      channelId: message.channel.id,
-      channelName: message.channel.name ?? "unknown",
-      authorId: message.author.id,
-      authorUsername: message.author.username,
-      content: normalizeContent(message.content),
-      timestamp: message.createdAt.toISOString()
+  async function flush(reason = "scheduled") {
+    if (queue.length === 0) {
+      return;
     }
+
+    const batch = queue;
+    queue = [];
+
+    const payload = {
+      eventType: "message_batch",
+      serverId: batch[0].serverId,
+      reason,
+      messages: batch
+    };
+
+    try {
+      const response = await fetch(webhookUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(webhookSecret
+            ? {
+                "x-discord-analytics-secret": webhookSecret
+              }
+            : {})
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        console.error("Failed to flush message batch", response.status, body);
+      }
+    } catch (error) {
+      console.error("Error posting message batch", error);
+      queue = [...batch, ...queue];
+    }
+  }
+
+  const flushTimer = setInterval(() => {
+    void flush();
+  }, flushIntervalMs);
+
+  async function stop() {
+    clearInterval(flushTimer);
+    await flush("shutdown");
+  }
+
+  function handleMessage(message) {
+    if (!message.guildId || !message.author || message.author.bot) {
+      return;
+    }
+
+    if (!message.content || !message.content.trim()) {
+      return;
+    }
+
+    queue.push({
+      messageId: message.id,
+      channelId: message.channelId,
+      memberId: message.author.id,
+      username: message.member?.displayName || message.author.username,
+      content: message.content,
+      createdAt: message.createdAt.toISOString(),
+      serverId: message.guildId
+    });
+
+    if (queue.length >= batchSize) {
+      void flush("batch_limit");
+    }
+  }
+
+  return {
+    handleMessage,
+    flush,
+    stop
   };
-
-  await axios.post(config.webhookUrl, payload, {
-    timeout: 4000,
-    headers: {
-      "content-type": "application/json",
-      "x-discord-webhook-secret": config.webhookSecret
-    }
-  });
 }
+
+module.exports = {
+  createMessageCollector
+};

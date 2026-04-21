@@ -1,71 +1,62 @@
-import { NextRequest, NextResponse } from "next/server";
-import { z } from "zod";
+import { NextResponse } from "next/server";
 
-import { getServerEnv } from "@/lib/env";
-import { appendDiscordMembers, appendDiscordMessages } from "@/lib/storage";
+import {
+  normalizeIncomingMembers,
+  normalizeIncomingMessages,
+  storeMemberSnapshot,
+  storeMessageBatch
+} from "@/lib/analytics";
+import type { DiscordWebhookPayload } from "@/lib/types";
 
-const discordIngestSchema = z.object({
-  serverId: z.string().min(1),
-  messages: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        channelId: z.string().min(1),
-        authorId: z.string().min(1),
-        authorName: z.string().min(1),
-        content: z.string(),
-        timestamp: z.string().datetime(),
-      })
-    )
-    .default([]),
-  members: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        memberId: z.string().min(1),
-        memberName: z.string().min(1),
-        event: z.enum(["join", "leave", "presence"]),
-        timestamp: z.string().datetime(),
-      })
-    )
-    .default([]),
-});
+export const runtime = "nodejs";
 
-export async function POST(request: NextRequest) {
-  const ingestSecret = request.headers.get("x-ingest-secret");
-  const expectedSecret = getServerEnv().DISCORD_INGEST_SECRET;
+function unauthorizedResponse() {
+  return NextResponse.json({ error: "Unauthorized webhook request." }, { status: 401 });
+}
 
-  if (expectedSecret && ingestSecret !== expectedSecret) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function POST(request: Request) {
+  const expectedSecret = process.env.DISCORD_WEBHOOK_SECRET;
+  const incomingSecret = request.headers.get("x-discord-analytics-secret");
+
+  if (expectedSecret && incomingSecret !== expectedSecret) {
+    return unauthorizedResponse();
   }
 
-  const parsed = discordIngestSchema.safeParse(await request.json());
+  let payload: DiscordWebhookPayload;
 
-  if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  try {
+    payload = (await request.json()) as DiscordWebhookPayload;
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON payload." }, { status: 400 });
   }
 
-  const payload = parsed.data;
+  if (!payload || !payload.eventType || !payload.serverId) {
+    return NextResponse.json({ error: "Missing eventType or serverId." }, { status: 400 });
+  }
 
-  await appendDiscordMessages(
-    payload.messages.map((message) => ({
-      ...message,
-      serverId: payload.serverId,
-    }))
-  );
+  if (payload.eventType === "message_batch") {
+    const rows = normalizeIncomingMessages(payload.serverId, payload.messages ?? []);
+    storeMessageBatch(rows);
 
-  await appendDiscordMembers(
-    payload.members.map((member) => ({
-      ...member,
-      serverId: payload.serverId,
-    }))
-  );
+    return NextResponse.json({
+      ok: true,
+      eventType: payload.eventType,
+      insertedMessages: rows.length
+    });
+  }
 
-  return NextResponse.json({
-    ok: true,
-    ingested: {
-      messages: payload.messages.length,
-      members: payload.members.length,
-    },
-  });
+  if (payload.eventType === "member_snapshot") {
+    const collectedAt = payload.collectedAt ?? new Date().toISOString();
+    const rows = normalizeIncomingMembers(payload.serverId, collectedAt, payload.members ?? []);
+    storeMemberSnapshot(rows);
+
+    return NextResponse.json({
+      ok: true,
+      eventType: payload.eventType,
+      insertedMembers: rows.length,
+      collectedAt
+    });
+  }
+
+  return NextResponse.json({ error: "Unsupported eventType." }, { status: 400 });
 }

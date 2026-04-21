@@ -1,0 +1,40 @@
+// Runtime persistence intentionally uses SQLite via better-sqlite3 in src/lib/db.ts.
+// This file documents the conceptual data model only and is not used by the app.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./ignored.db"
+}
+
+model DiscordMessage {
+  messageId String @id
+  serverId  String
+  channelId String
+  memberId  String
+  username  String
+  content   String
+  wordCount Int
+  createdAt DateTime
+}
+
+model DiscordMemberSnapshot {
+  id          Int      @id @default(autoincrement())
+  serverId    String
+  memberId    String
+  username    String
+  joinedAt    DateTime?
+  rolesJson   String
+  collectedAt DateTime
+}
+
+model PurchaseEntitlement {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  status    String
+  source    String
+  updatedAt DateTime
+}
